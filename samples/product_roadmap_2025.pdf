@@ -8,18 +8,7 @@
 /Subject (Strategic Product Planning)
 /Keywords (roadmap\054 product\054 strategy\054 2025\054 planning)
 /Creator (Product Planning Tool)
-/Classification (TOP SECRET)
-/SecurityLevel (Level 5)
-/Department (Product)
-/DocumentType (Strategic Plan)
-/RetentionPeriod (5 years)
-/ComplianceCategory (Trade Secret)
-/AccessControl (Executive Team\054 Product Leadership)
-/DataSensitivity (CRITICAL)
-/ProjectCode (PROD\055ROADMAP\0552025)
-/ApprovalStatus (Draft)
-/ExpirationDate (2025\05512\05531)
-/DistributionList (C\055Suite\054 VP Product\054 Directors)
+/CustomFields (\173\042classification\042\072 \042TOP SECRET\042\054 \042securityLevel\042\072 5\054 \042department\042\072 \042Product\042\054 \042documentType\042\072 \042Strategic Plan\042\054 \042retentionPeriod\042\072 \0425 years\042\054 \042compliance\042\072 \173\042category\042\072 \042Trade Secret\042\054 \042ndaRequired\042\072 true\054 \042exportControlled\042\072 true\175\054 \042accessControl\042\072 \173\042allowedGroups\042\072 \133\042Executive Team\042\054 \042Product Leadership\042\135\054 \042allowedUsers\042\072 \133\042ceo\100acme\056com\042\054 \042cpo\100acme\056com\042\054 \042vp\055product\100acme\056com\042\135\054 \042mfaRequired\042\072 true\054 \042watermarkOnView\042\072 true\175\054 \042dataSensitivity\042\072 \042CRITICAL\042\054 \042projectCode\042\072 \042PROD\055ROADMAP\0552025\042\054 \042workflow\042\072 \173\042status\042\072 \042Draft\042\054 \042expirationDate\042\072 \0422025\05512\05531\042\054 \042distributionList\042\072 \133\042C\055Suite\042\054 \042VP Product\042\054 \042Directors\042\135\175\054 \042tags\042\072 \133\042roadmap\042\054 \042strategy\042\054 \042confidential\042\054 \0422025\042\135\054 \042competitors\042\072 \173\042mentionsCompetitors\042\072 true\054 \042competitorAnalysis\042\072 true\175\175)
 >>
 endobj
 2 0 obj
@@ -87,13 +76,13 @@ xref
 0 9
 0000000000 65535 f 
 0000000015 00000 n 
-0000000676 00000 n 
-0000000735 00000 n 
-0000000784 00000 n 
-0000000973 00000 n 
-0000001523 00000 n 
-0000001564 00000 n 
-0000001671 00000 n 
+0000001548 00000 n 
+0000001607 00000 n 
+0000001656 00000 n 
+0000001845 00000 n 
+0000002395 00000 n 
+0000002436 00000 n 
+0000002543 00000 n 
 trailer
 <<
 /Size 9
@@ -101,5 +90,5 @@ trailer
 /Info 1 0 R
 >>
 startxref
-1783
+2655
 %%EOF

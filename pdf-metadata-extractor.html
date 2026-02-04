@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Metadata & Custom Data Extractor</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; }
+    h1 { color: #333; }
+    h2 { color: #555; margin-top: 25px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+    input[type="file"] { margin: 20px 0; padding: 10px; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #f5f5f5; width: 200px; }
+    td { word-break: break-all; }
+    .section { background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 5px; }
+    .empty { color: #999; font-style: italic; }
+    pre { background: #f0f0f0; padding: 10px; overflow-x: auto; font-size: 12px; }
+    #raw-output { max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>📄 PDF Metadata & Custom Data Extractor</h1>
+  <p>Select a PDF to extract all metadata, document info, and custom properties.</p>
+  
+  <input type="file" id="pdf-input" accept=".pdf">
+  
+  <div id="results" style="display:none;">
+    
+    <h2>📋 Document Info (Standard Metadata)</h2>
+    <div class="section">
+      <table id="info-table"></table>
+    </div>
+    
+    <h2>🏷️ XMP Metadata</h2>
+    <div class="section">
+      <table id="xmp-table"></table>
+    </div>
+    
+    <h2>🔧 Custom Metadata Fields</h2>
+    <div class="section">
+      <table id="custom-table"></table>
+    </div>
+    
+    <h2>📊 Document Statistics</h2>
+    <div class="section">
+      <table id="stats-table"></table>
+    </div>
+    
+    <h2>🗂️ Raw Metadata Output</h2>
+    <div class="section" id="raw-output">
+      <pre id="raw-json"></pre>
+    </div>
+    
+  </div>
+
+  <script src="pdf.min.js"></script>
+  <script>
+    // Set worker source for offline use
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+
+    // Standard PDF info fields
+    const STANDARD_FIELDS = [
+      'Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer',
+      'CreationDate', 'ModDate', 'Trapped', 'PDFFormatVersion'
+    ];
+
+    document.getElementById('pdf-input').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        
+        // Get metadata
+        const metadata = await pdf.getMetadata();
+        
+        console.log('Full metadata object:', metadata);
+        
+        // Display results
+        document.getElementById('results').style.display = 'block';
+        
+        // 1. Document Info (standard fields)
+        displayInfo(metadata.info);
+        
+        // 2. XMP Metadata
+        displayXMP(metadata.metadata);
+        
+        // 3. Custom fields (non-standard)
+        displayCustomFields(metadata.info);
+        
+        // 4. Document stats
+        displayStats(pdf, file);
+        
+        // 5. Raw output
+        displayRaw(metadata);
+        
+      } catch (error) {
+        alert('Error: ' + error.message);
+        console.error(error);
+      }
+    });
+
+    function displayInfo(info) {
+      const table = document.getElementById('info-table');
+      table.innerHTML = '';
+      
+      if (!info) {
+        table.innerHTML = '<tr><td class="empty">No document info available</td></tr>';
+        return;
+      }
+
+      const fields = [
+        ['Title', info.Title],
+        ['Author', info.Author],
+        ['Subject', info.Subject],
+        ['Keywords', info.Keywords],
+        ['Creator', info.Creator],
+        ['Producer', info.Producer],
+        ['Creation Date', formatDate(info.CreationDate)],
+        ['Modification Date', formatDate(info.ModDate)],
+        ['PDF Version', info.PDFFormatVersion],
+        ['Trapped', info.Trapped],
+        ['Encrypted', info.IsAcroFormPresent ? 'Yes' : 'No'],
+        ['Has Forms', info.IsAcroFormPresent ? 'Yes' : 'No'],
+        ['Has XFA Forms', info.IsXFAPresent ? 'Yes' : 'No'],
+        ['Collection', info.IsCollectionPresent ? 'Yes' : 'No'],
+        ['Signatures', info.IsSignaturesPresent ? 'Yes' : 'No'],
+      ];
+
+      fields.forEach(([label, value]) => {
+        const row = table.insertRow();
+        row.innerHTML = `<th>${label}</th><td>${value || '<span class="empty">Not set</span>'}</td>`;
+      });
+    }
+
+    function displayXMP(xmpMetadata) {
+      const table = document.getElementById('xmp-table');
+      table.innerHTML = '';
+
+      if (!xmpMetadata) {
+        table.innerHTML = '<tr><td class="empty">No XMP metadata available</td></tr>';
+        return;
+      }
+
+      // Get all XMP data
+      const xmpData = xmpMetadata.getAll();
+      
+      if (!xmpData || Object.keys(xmpData).length === 0) {
+        table.innerHTML = '<tr><td class="empty">XMP metadata is empty</td></tr>';
+        return;
+      }
+
+      for (const [key, value] of Object.entries(xmpData)) {
+        const row = table.insertRow();
+        let displayValue = value;
+        
+        if (Array.isArray(value)) {
+          displayValue = value.join(', ');
+        } else if (typeof value === 'object') {
+          displayValue = JSON.stringify(value, null, 2);
+        }
+        
+        row.innerHTML = `<th>${key}</th><td>${displayValue || '<span class="empty">Empty</span>'}</td>`;
+      }
+    }
+
+    function displayCustomFields(info) {
+      const table = document.getElementById('custom-table');
+      table.innerHTML = '';
+
+      if (!info) {
+        table.innerHTML = '<tr><td class="empty">No custom fields</td></tr>';
+        return;
+      }
+
+      // Find non-standard fields (custom metadata)
+      const customFields = {};
+      for (const [key, value] of Object.entries(info)) {
+        if (!STANDARD_FIELDS.includes(key) && 
+            !key.startsWith('Is') && 
+            key !== 'Custom' &&
+            typeof value !== 'undefined') {
+          customFields[key] = value;
+        }
+      }
+
+      // Also check for a Custom object
+      if (info.Custom && typeof info.Custom === 'object') {
+        Object.assign(customFields, info.Custom);
+      }
+
+      if (Object.keys(customFields).length === 0) {
+        table.innerHTML = '<tr><td class="empty">No custom metadata fields found</td></tr>';
+        return;
+      }
+
+      for (const [key, value] of Object.entries(customFields)) {
+        const row = table.insertRow();
+        let displayValue = value;
+        
+        if (typeof value === 'object') {
+          displayValue = JSON.stringify(value, null, 2);
+        }
+        
+        row.innerHTML = `<th>${key}</th><td>${displayValue}</td>`;
+      }
+    }
+
+    function displayStats(pdf, file) {
+      const table = document.getElementById('stats-table');
+      table.innerHTML = '';
+
+      const stats = [
+        ['File Name', file.name],
+        ['File Size', formatBytes(file.size)],
+        ['File Type', file.type],
+        ['Total Pages', pdf.numPages],
+        ['Fingerprints', pdf.fingerprints?.join(', ') || 'N/A'],
+      ];
+
+      stats.forEach(([label, value]) => {
+        const row = table.insertRow();
+        row.innerHTML = `<th>${label}</th><td>${value}</td>`;
+      });
+    }
+
+    function displayRaw(metadata) {
+      const rawJson = document.getElementById('raw-json');
+      
+      // Create a clean object for display
+      const output = {
+        info: metadata.info,
+        metadata: metadata.metadata ? metadata.metadata.getAll() : null,
+        contentDispositionFilename: metadata.contentDispositionFilename
+      };
+      
+      rawJson.textContent = JSON.stringify(output, null, 2);
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return null;
+      
+      // PDF dates are in format: D:YYYYMMDDHHmmSS+HH'mm'
+      try {
+        if (dateStr.startsWith('D:')) {
+          const cleaned = dateStr.slice(2);
+          const year = cleaned.slice(0, 4);
+          const month = cleaned.slice(4, 6);
+          const day = cleaned.slice(6, 8);
+          const hour = cleaned.slice(8, 10) || '00';
+          const min = cleaned.slice(10, 12) || '00';
+          const sec = cleaned.slice(12, 14) || '00';
+          
+          const date = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}`);
+          return date.toLocaleString() + ` (Raw: ${dateStr})`;
+        }
+        return dateStr;
+      } catch {
+        return dateStr;
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+  </script>
+</body>
+</html>

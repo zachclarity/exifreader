@@ -8,18 +8,7 @@
 /Subject (Company Meeting Summary)
 /Keywords (meeting\054 all\055hands\054 company\054 notes)
 /Creator (Meeting Notes App)
-/Classification (PUBLIC)
-/SecurityLevel (Level 0)
-/Department (Communications)
-/DocumentType (Meeting Notes)
-/RetentionPeriod (2 years)
-/ComplianceCategory (None)
-/AccessControl (Public)
-/DataSensitivity (NONE)
-/ProjectCode (COMM\055MTG\0552024\05512)
-/ApprovalStatus (Approved for Distribution)
-/MeetingDate (2024\05512\05501)
-/Attendees (All Employees)
+/CustomFields (\173\042classification\042\072 \042PUBLIC\042\054 \042securityLevel\042\072 0\054 \042department\042\072 \042Communications\042\054 \042documentType\042\072 \042Meeting Notes\042\054 \042retentionPeriod\042\072 \0422 years\042\054 \042compliance\042\072 \173\042category\042\072 \042None\042\054 \042audited\042\072 false\175\054 \042accessControl\042\072 \173\042allowedGroups\042\072 \133\042Public\042\135\054 \042public\042\072 true\054 \042shareable\042\072 true\175\054 \042dataSensitivity\042\072 \042NONE\042\054 \042projectCode\042\072 \042COMM\055MTG\0552024\05512\042\054 \042workflow\042\072 \173\042status\042\072 \042Approved for Distribution\042\054 \042approvedBy\042\072 \042Communications Director\042\175\054 \042meeting\042\072 \173\042date\042\072 \0422024\05512\05501\042\054 \042attendees\042\072 \042All Employees\042\054 \042location\042\072 \042Main Auditorium\042\054 \042recordingAvailable\042\072 true\054 \042recordingUrl\042\072 \042https\072\057\057intranet\056acme\056com\057recordings\057allhands\055dec2024\042\175\054 \042tags\042\072 \133\042meeting\042\054 \042all\055hands\042\054 \042company\055wide\042\054 \042december\042\135\175)
 >>
 endobj
 2 0 obj
@@ -87,13 +76,13 @@ xref
 0 9
 0000000000 65535 f 
 0000000015 00000 n 
-0000000632 00000 n 
-0000000691 00000 n 
-0000000740 00000 n 
-0000000929 00000 n 
 0000001466 00000 n 
-0000001507 00000 n 
-0000001614 00000 n 
+0000001525 00000 n 
+0000001574 00000 n 
+0000001763 00000 n 
+0000002300 00000 n 
+0000002341 00000 n 
+0000002448 00000 n 
 trailer
 <<
 /Size 9
@@ -101,5 +90,5 @@ trailer
 /Info 1 0 R
 >>
 startxref
-1726
+2560
 %%EOF

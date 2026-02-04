@@ -8,18 +8,7 @@
 /Subject (Company Policies and Procedures)
 /Keywords (HR\054 handbook\054 policies\054 employee\054 benefits)
 /Creator (HR Documentation System)
-/Classification (INTERNAL)
-/SecurityLevel (Level 1)
-/Department (Human Resources)
-/DocumentType (Policy Document)
-/RetentionPeriod (Current \053 1 year)
-/ComplianceCategory (HR Compliance)
-/AccessControl (All Employees)
-/DataSensitivity (LOW)
-/ProjectCode (HR\055HANDBOOK\0552024)
-/ApprovalStatus (Published)
-/EffectiveDate (2024\05501\05501)
-/Version (3\0562)
+/CustomFields (\173\042classification\042\072 \042INTERNAL\042\054 \042securityLevel\042\072 1\054 \042department\042\072 \042Human Resources\042\054 \042documentType\042\072 \042Policy Document\042\054 \042retentionPeriod\042\072 \042Current \053 1 year\042\054 \042compliance\042\072 \173\042category\042\072 \042HR Compliance\042\054 \042audited\042\072 false\175\054 \042accessControl\042\072 \173\042allowedGroups\042\072 \133\042All Employees\042\135\054 \042public\042\072 false\175\054 \042dataSensitivity\042\072 \042LOW\042\054 \042projectCode\042\072 \042HR\055HANDBOOK\0552024\042\054 \042workflow\042\072 \173\042status\042\072 \042Published\042\054 \042version\042\072 \0423\0562\042\054 \042effectiveDate\042\072 \0422024\05501\05501\042\054 \042nextReviewDate\042\072 \0422025\05501\05501\042\175\054 \042tags\042\072 \133\042HR\042\054 \042policy\042\054 \042handbook\042\054 \042onboarding\042\135\054 \042languages\042\072 \133\042en\042\054 \042es\042\054 \042fr\042\135\175)
 >>
 endobj
 2 0 obj
@@ -87,13 +76,13 @@ xref
 0 9
 0000000000 65535 f 
 0000000015 00000 n 
-0000000633 00000 n 
-0000000692 00000 n 
-0000000741 00000 n 
-0000000930 00000 n 
-0000001481 00000 n 
-0000001522 00000 n 
-0000001629 00000 n 
+0000001268 00000 n 
+0000001327 00000 n 
+0000001376 00000 n 
+0000001565 00000 n 
+0000002116 00000 n 
+0000002157 00000 n 
+0000002264 00000 n 
 trailer
 <<
 /Size 9
@@ -101,5 +90,5 @@ trailer
 /Info 1 0 R
 >>
 startxref
-1741
+2376
 %%EOF

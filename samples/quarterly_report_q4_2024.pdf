@@ -8,17 +8,7 @@
 /Subject (Quarterly Financial Results)
 /Keywords (finance\054 quarterly\054 report\054 Q4\054 2024\054 revenue)
 /Creator (Acme Corp Financial System)
-/Classification (CONFIDENTIAL)
-/SecurityLevel (Level 3)
-/Department (Finance)
-/DocumentType (Financial Report)
-/RetentionPeriod (7 years)
-/ComplianceCategory (SOX)
-/AccessControl (Finance Team\054 Executive\054 Audit)
-/DataSensitivity (HIGH)
-/ProjectCode (FIN\0552024\055Q4)
-/ApprovalStatus (Approved)
-/ReviewDate (2024\05512\05515)
+/CustomFields (\173\042classification\042\072 \042CONFIDENTIAL\042\054 \042securityLevel\042\072 3\054 \042department\042\072 \042Finance\042\054 \042documentType\042\072 \042Financial Report\042\054 \042retentionPeriod\042\072 \0427 years\042\054 \042compliance\042\072 \173\042category\042\072 \042SOX\042\054 \042audited\042\072 true\054 \042lastAuditDate\042\072 \0422024\05511\05501\042\175\054 \042accessControl\042\072 \173\042allowedGroups\042\072 \133\042Finance Team\042\054 \042Executive\042\054 \042Audit\042\135\054 \042allowedUsers\042\072 \133\042cfo\100acme\056com\042\054 \042controller\100acme\056com\042\135\054 \042restrictedCountries\042\072 \133\042CN\042\054 \042RU\042\135\175\054 \042dataSensitivity\042\072 \042HIGH\042\054 \042projectCode\042\072 \042FIN\0552024\055Q4\042\054 \042workflow\042\072 \173\042status\042\072 \042Approved\042\054 \042approvedBy\042\072 \042Jane Smith\042\054 \042approvedDate\042\072 \0422024\05512\05515\042\054 \042reviewers\042\072 \133\042john\056doe\100acme\056com\042\054 \042mary\056jane\100acme\056com\042\135\175\054 \042tags\042\072 \133\042quarterly\042\054 \042financial\042\054 \0422024\042\054 \042Q4\042\135\175)
 >>
 endobj
 2 0 obj
@@ -86,13 +76,13 @@ xref
 0 9
 0000000000 65535 f 
 0000000015 00000 n 
-0000000615 00000 n 
-0000000674 00000 n 
-0000000723 00000 n 
-0000000912 00000 n 
-0000001429 00000 n 
-0000001470 00000 n 
-0000001577 00000 n 
+0000001466 00000 n 
+0000001525 00000 n 
+0000001574 00000 n 
+0000001763 00000 n 
+0000002280 00000 n 
+0000002321 00000 n 
+0000002428 00000 n 
 trailer
 <<
 /Size 9
@@ -100,5 +90,5 @@ trailer
 /Info 1 0 R
 >>
 startxref
-1689
+2540
 %%EOF
