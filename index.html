@@ -1,217 +1,374 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>PDF Metadata Extractor (Offline)</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; }
-    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background: #f5f5f5; width: 180px; }
-    pre { background: #f0f0f0; padding: 10px; overflow-x: auto; max-height: 300px; }
-    .section { margin: 20px 0; }
-    h2 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-    .error { color: red; background: #ffe0e0; padding: 15px; border-radius: 5px; margin: 10px 0; }
-    .success { color: green; background: #e0ffe0; padding: 10px; border-radius: 5px; margin: 10px 0; }
-    #status { margin: 15px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Metadata &amp; Image Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .img-thumb { transition: transform .15s; }
+        .img-thumb:hover { transform: scale(1.03); }
+        /* lightbox */
+        #lightbox { display:none; }
+        #lightbox.active { display:flex; }
+    </style>
 </head>
-<body>
-  <h1>📄 PDF Metadata Extractor</h1>
-  <p>Works offline - no server needed</p>
-  
-  <div id="status">Checking PDF.js library status...</div>
-  
-  <input type="file" id="pdf-input" accept=".pdf" disabled>
-  
-  <div id="results" style="display:none;">
-    <div class="section">
-      <h2>Document Info</h2>
-      <table id="info-table"></table>
-    </div>
-    
-    <div class="section">
-      <h2>Custom/Extra Fields</h2>
-      <table id="custom-table"></table>
-    </div>
-    
-    <div class="section">
-      <h2>XMP Metadata</h2>
-      <table id="xmp-table"></table>
-    </div>
-    
-    <div class="section">
-      <h2>Raw JSON</h2>
-      <pre id="raw-json"></pre>
-    </div>
-  </div>
+<body class="bg-gray-100 min-h-screen p-4">
 
-  <!-- IMPORTANT: All 3 files must be in the SAME FOLDER -->
-  <!-- Load worker FIRST -->
-  <script src="pdf.worker.min.js"></script>
-  <!-- Then load main PDF.js -->
-  <script src="pdf.min.js"></script>
-  
-  <script>
-    // Check if PDF.js loaded successfully
-    const statusDiv = document.getElementById('status');
-    const fileInput = document.getElementById('pdf-input');
-    
-    if (typeof pdfjsLib === 'undefined') {
-      statusDiv.className = 'error';
-      statusDiv.innerHTML = `
-        <strong>❌ Error: PDF.js library not loaded!</strong><br><br>
-        Make sure these 3 files are in the <strong>same folder</strong>:<br>
-        • pdf-metadata-offline.html (this file)<br>
-        • pdf.min.js<br>
-        • pdf.worker.min.js<br><br>
-        <em>Tip: Check your browser's console (F12) for more details.</em>
-      `;
-    } else {
-      statusDiv.className = 'success';
-      statusDiv.innerHTML = '✅ PDF.js loaded successfully! Select a PDF file below.';
-      fileInput.disabled = false;
-      
-      // Check if worker loaded
-      if (typeof pdfjsWorker !== 'undefined' || (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions)) {
-        console.log('PDF.js worker available');
-      }
-    }
-    
-    const STANDARD_FIELDS = [
-      'Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer',
-      'CreationDate', 'ModDate', 'Trapped', 'PDFFormatVersion',
-      'IsLinearized', 'IsAcroFormPresent', 'IsXFAPresent', 
-      'IsCollectionPresent', 'IsSignaturesPresent', 'Language'
-    ];
+    <!-- Lightbox -->
+    <div id="lightbox" class="fixed inset-0 bg-black/80 z-50 items-center justify-center p-4" onclick="closeLightbox(event)">
+        <button onclick="closeLightbox()" class="absolute top-4 right-4 text-white text-3xl font-bold z-10 hover:text-gray-300">&times;</button>
+        <img id="lightboxImg" class="max-h-[90vh] max-w-[90vw] object-contain rounded shadow-2xl" />
+        <div id="lightboxCaption" class="absolute bottom-6 left-0 right-0 text-center text-white text-sm bg-black/50 py-2"></div>
+    </div>
 
-    fileInput.addEventListener('change', async function(e) {
-      const file = e.target.files[0];
-      if (!file) return;
+    <div class="max-w-4xl mx-auto">
 
-      statusDiv.innerHTML = '⏳ Processing PDF...';
-      statusDiv.className = '';
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">PDF Metadata &amp; Image Extractor</h1>
 
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        
-        // Load PDF - disable worker if needed for file:// protocol
-        const loadingTask = pdfjsLib.getDocument({ 
-          data: arrayBuffer,
-          useWorkerFetch: false,
-          isEvalSupported: false,
-          useSystemFonts: true
+        <!-- Upload -->
+        <div class="bg-white rounded-lg shadow-lg p-8 mb-6">
+            <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors cursor-pointer">
+                <input type="file" id="pdfInput" accept=".pdf" class="hidden">
+                <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <p class="text-gray-600 mb-2">Click to upload or drag and drop</p>
+                <p class="text-sm text-gray-500">PDF files only &middot; max 50 MB</p>
+            </div>
+            <div id="fileName" class="mt-4 text-center text-gray-600 hidden"></div>
+
+            <!-- Progress -->
+            <div id="progress" class="mt-4 hidden">
+                <div class="flex items-center gap-3">
+                    <div class="flex-1 bg-gray-200 rounded-full h-2">
+                        <div id="progressBar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width:0%"></div>
+                    </div>
+                    <span id="progressText" class="text-sm text-gray-500 w-32 text-right">Uploading…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="hidden mb-6">
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+                <p id="errorMessage"></p>
+            </div>
+        </div>
+
+        <!-- Results wrapper -->
+        <div id="results" class="hidden space-y-6">
+
+            <!-- Standard metadata -->
+            <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+                <h2 class="text-lg font-semibold text-gray-800 px-6 py-4 border-b">Standard Metadata</h2>
+                <div id="standardMeta"></div>
+            </div>
+
+            <!-- Custom fields -->
+            <div id="customSection" class="bg-white rounded-lg shadow-lg overflow-hidden hidden">
+                <h2 class="text-lg font-semibold text-gray-800 px-6 py-4 border-b">Custom Fields (JSON)</h2>
+                <div id="classificationBanner"></div>
+                <div id="customMeta"></div>
+                <div class="px-6 py-4 border-t">
+                    <button onclick="toggleRawJson()" class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                        <svg id="jsonToggleIcon" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                        Show Raw JSON
+                    </button>
+                    <pre id="rawJson" class="hidden mt-2 bg-gray-800 text-green-400 p-4 rounded text-xs overflow-auto max-h-64"></pre>
+                </div>
+            </div>
+
+            <!-- Extracted images -->
+            <div id="imagesSection" class="bg-white rounded-lg shadow-lg overflow-hidden hidden">
+                <div class="flex items-center justify-between px-6 py-4 border-b">
+                    <h2 class="text-lg font-semibold text-gray-800">
+                        Extracted Images <span id="imageCount" class="text-sm font-normal text-gray-500"></span>
+                    </h2>
+                    <a id="downloadAllBtn" href="#" class="hidden text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                        ⬇ Download All (.zip)
+                    </a>
+                </div>
+                <div id="imageGrid" class="p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+            </div>
+
+            <!-- No images -->
+            <div id="noImages" class="bg-white rounded-lg shadow-lg p-6 text-center text-gray-500 hidden">
+                No images found in this PDF.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone     = document.getElementById('dropZone');
+        const pdfInput     = document.getElementById('pdfInput');
+        const fileNameEl   = document.getElementById('fileName');
+        const progress     = document.getElementById('progress');
+        const progressBar  = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const results      = document.getElementById('results');
+        const errorDiv     = document.getElementById('error');
+        const errorMessage = document.getElementById('errorMessage');
+
+        /* ── Drop / click ── */
+        dropZone.addEventListener('click', () => pdfInput.click());
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-blue-500','bg-blue-50'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-blue-500','bg-blue-50'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500','bg-blue-50');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type === 'application/pdf') processFile(file);
+            else showError('Please upload a PDF file.');
         });
-        
-        const pdf = await loadingTask.promise;
-        const metadata = await pdf.getMetadata();
-        
-        console.log('Full metadata object:', metadata);
-        
-        statusDiv.className = 'success';
-        statusDiv.innerHTML = `✅ Loaded: ${file.name} (${pdf.numPages} pages)`;
-        
-        document.getElementById('results').style.display = 'block';
-        
-        // Standard info
-        displayInfo(metadata.info, pdf.numPages);
-        
-        // Custom fields
-        displayCustom(metadata.info);
-        
-        // XMP
-        displayXMP(metadata.metadata);
-        
-        // Raw JSON
-        document.getElementById('raw-json').textContent = JSON.stringify({
-          info: metadata.info,
-          xmp: metadata.metadata ? metadata.metadata.getAll() : null,
-          pages: pdf.numPages
-        }, null, 2);
-        
-      } catch (error) {
-        statusDiv.className = 'error';
-        statusDiv.innerHTML = `❌ Error: ${error.message}`;
-        console.error('Full error:', error);
-      }
-    });
+        pdfInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
 
-    function displayInfo(info, pages) {
-      const table = document.getElementById('info-table');
-      table.innerHTML = '';
-      
-      const rows = [
-        ['Title', info?.Title],
-        ['Author', info?.Author],
-        ['Subject', info?.Subject],
-        ['Keywords', info?.Keywords],
-        ['Creator', info?.Creator],
-        ['Producer', info?.Producer],
-        ['Creation Date', formatDate(info?.CreationDate)],
-        ['Modification Date', formatDate(info?.ModDate)],
-        ['PDF Version', info?.PDFFormatVersion],
-        ['Pages', pages],
-        ['Has Forms', info?.IsAcroFormPresent ? 'Yes' : 'No'],
-        ['Has Signatures', info?.IsSignaturesPresent ? 'Yes' : 'No'],
-      ];
-      
-      rows.forEach(([k, v]) => {
-        table.innerHTML += `<tr><th>${k}</th><td>${v || '—'}</td></tr>`;
-      });
-    }
+        /* ── Upload & extract ── */
+        async function processFile(file) {
+            fileNameEl.textContent = `File: ${file.name}`;
+            fileNameEl.classList.remove('hidden');
+            errorDiv.classList.add('hidden');
+            results.classList.add('hidden');
+            progress.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Uploading…';
 
-    function displayCustom(info) {
-      const table = document.getElementById('custom-table');
-      table.innerHTML = '';
-      
-      if (!info) {
-        table.innerHTML = '<tr><td>No custom fields</td></tr>';
-        return;
-      }
-      
-      let hasCustom = false;
-      for (const [key, value] of Object.entries(info)) {
-        if (!STANDARD_FIELDS.includes(key) && value !== undefined && value !== null) {
-          hasCustom = true;
-          table.innerHTML += `<tr><th>${key}</th><td>${JSON.stringify(value)}</td></tr>`;
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                // Upload with XHR for progress
+                const data = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/extract');
+
+                    xhr.upload.onprogress = e => {
+                        if (e.lengthComputable) {
+                            const pct = Math.round(e.loaded / e.total * 70);
+                            progressBar.style.width = pct + '%';
+                            progressText.textContent = `Uploading… ${pct}%`;
+                        }
+                    };
+
+                    xhr.onload = () => {
+                        progressBar.style.width = '100%';
+                        progressText.textContent = 'Done';
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            try { resolve(JSON.parse(xhr.responseText)); }
+                            catch { reject(new Error('Invalid JSON response')); }
+                        } else {
+                            try {
+                                const err = JSON.parse(xhr.responseText);
+                                reject(new Error(err.error || `HTTP ${xhr.status}`));
+                            } catch { reject(new Error(`HTTP ${xhr.status}`)); }
+                        }
+                    };
+
+                    xhr.onerror = () => reject(new Error('Network error'));
+
+                    xhr.onreadystatechange = () => {
+                        if (xhr.readyState === 3) {
+                            progressBar.style.width = '85%';
+                            progressText.textContent = 'Extracting…';
+                        }
+                    };
+
+                    xhr.send(formData);
+                });
+
+                displayResults(data, file);
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                setTimeout(() => progress.classList.add('hidden'), 800);
+            }
         }
-      }
-      
-      if (!hasCustom) {
-        table.innerHTML = '<tr><td colspan="2" style="color:#999">No custom metadata fields found</td></tr>';
-      }
-    }
 
-    function displayXMP(xmp) {
-      const table = document.getElementById('xmp-table');
-      table.innerHTML = '';
-      
-      if (!xmp) {
-        table.innerHTML = '<tr><td>No XMP metadata</td></tr>';
-        return;
-      }
-      
-      const data = xmp.getAll();
-      if (!data || Object.keys(data).length === 0) {
-        table.innerHTML = '<tr><td>XMP metadata is empty</td></tr>';
-        return;
-      }
-      
-      for (const [key, value] of Object.entries(data)) {
-        const v = Array.isArray(value) ? value.join(', ') : 
-                  typeof value === 'object' ? JSON.stringify(value) : value;
-        table.innerHTML += `<tr><th>${key}</th><td>${v || '—'}</td></tr>`;
-      }
-    }
+        /* ── Render ── */
+        function displayResults(data, file) {
+            results.classList.remove('hidden');
 
-    function formatDate(d) {
-      if (!d) return null;
-      if (typeof d === 'string' && d.startsWith('D:')) {
-        const p = d.slice(2);
-        return `${p.slice(0,4)}-${p.slice(4,6)}-${p.slice(6,8)} ${p.slice(8,10)}:${p.slice(10,12)}:${p.slice(12,14)}`;
-      }
-      return d;
-    }
-  </script>
+            renderStandardMetadata(data.standardMetadata, file);
+            renderCustomFields(data.customFields);
+            renderImages(data.images, data.jobId);
+        }
+
+        /* ── Standard metadata table ── */
+        function renderStandardMetadata(meta) {
+            const rows = [
+                ['Title',           meta.title || 'N/A'],
+                ['Author',          meta.author || 'N/A'],
+                ['Subject',         meta.subject || 'N/A'],
+                ['Keywords',        meta.keywords || 'N/A'],
+                ['Creator',         meta.creator || 'N/A'],
+                ['Producer',        meta.producer || 'N/A'],
+                ['Creation Date',   meta.creationDate || 'N/A'],
+                ['Modification Date', meta.modDate || 'N/A'],
+                ['PDF Format',      meta.format || 'N/A'],
+                ['Encryption',      meta.encryption || 'None'],
+                ['Page Count',      meta.pageCount],
+                ['File Size',       formatFileSize(meta.fileSize)],
+                ['File Name',       meta.fileName],
+            ];
+
+            document.getElementById('standardMeta').innerHTML = rows.map((r, i) => `
+                <div class="flex border-b border-gray-100 ${i%2?'bg-gray-50':'bg-white'}">
+                    <div class="w-1/3 px-6 py-3 font-medium text-gray-700">${r[0]}</div>
+                    <div class="w-2/3 px-6 py-3 text-gray-600 break-all">${r[1]}</div>
+                </div>`).join('');
+        }
+
+        /* ── Custom fields ── */
+        function renderCustomFields(custom) {
+            const section = document.getElementById('customSection');
+            if (!custom || Object.keys(custom).length === 0) { section.classList.add('hidden'); return; }
+            section.classList.remove('hidden');
+
+            // Banner
+            const banner = document.getElementById('classificationBanner');
+            if (custom.classification) {
+                const colors = {
+                    'PUBLIC':'bg-green-500','INTERNAL':'bg-blue-500',
+                    'CONFIDENTIAL':'bg-yellow-500','RESTRICTED':'bg-orange-500','TOP SECRET':'bg-red-600'
+                };
+                banner.innerHTML = `<div class="${colors[custom.classification]||'bg-gray-500'} text-white px-4 py-2 text-center font-bold text-sm tracking-wide">${custom.classification}</div>`;
+            } else { banner.innerHTML = ''; }
+
+            // Fields
+            let html = '';
+            let idx = 0;
+            for (const [key, value] of Object.entries(custom)) {
+                const isObj = typeof value === 'object' && !Array.isArray(value) && value !== null;
+                html += `
+                    <div class="border-b border-gray-100 ${idx%2?'bg-gray-50':'bg-white'}">
+                        <div class="flex ${isObj?'flex-col':''}">
+                            <div class="${isObj?'px-6 py-2 font-medium text-gray-700 bg-gray-50':'w-1/3 px-6 py-3 font-medium text-gray-700'}">${formatKey(key)}</div>
+                            <div class="${isObj?'px-6 py-3':'w-2/3 px-6 py-3'} text-gray-600 break-all">${renderValue(value, key)}</div>
+                        </div>
+                    </div>`;
+                idx++;
+            }
+            document.getElementById('customMeta').innerHTML = html;
+            document.getElementById('rawJson').textContent = JSON.stringify(custom, null, 2);
+        }
+
+        /* ── Images ── */
+        function renderImages(images, jobId) {
+            const imgSection = document.getElementById('imagesSection');
+            const noImages   = document.getElementById('noImages');
+
+            if (!images || images.length === 0) {
+                imgSection.classList.add('hidden');
+                noImages.classList.remove('hidden');
+                return;
+            }
+
+            noImages.classList.add('hidden');
+            imgSection.classList.remove('hidden');
+            document.getElementById('imageCount').textContent = `(${images.length} image${images.length>1?'s':''})`;
+
+            // Download-all button
+            const dlBtn = document.getElementById('downloadAllBtn');
+            dlBtn.href = `/api/images/${jobId}/download-all`;
+            dlBtn.classList.remove('hidden');
+
+            // Grid
+            const grid = document.getElementById('imageGrid');
+            grid.innerHTML = images.map((img, i) => `
+                <div class="img-thumb group relative bg-gray-100 rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                     onclick="openLightbox('${img.url}', '${img.filename}', ${img.width}, ${img.height}, '${formatFileSize(img.size)}')">
+                    <div class="aspect-square flex items-center justify-center p-2">
+                        <img src="${img.url}" alt="${img.filename}"
+                             class="max-h-full max-w-full object-contain rounded"
+                             loading="lazy" />
+                    </div>
+                    <div class="px-3 py-2 bg-white border-t border-gray-100">
+                        <p class="text-xs font-medium text-gray-700 truncate">${img.filename}</p>
+                        <p class="text-xs text-gray-400">Page ${img.page} &middot; ${img.width}×${img.height} &middot; ${formatFileSize(img.size)}</p>
+                    </div>
+                    <a href="${img.url}" download="${img.filename}"
+                       onclick="event.stopPropagation()"
+                       class="absolute top-2 right-2 bg-white/90 rounded-full p-1.5 shadow opacity-0 group-hover:opacity-100 transition-opacity"
+                       title="Download image">
+                        <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16"/>
+                        </svg>
+                    </a>
+                </div>
+            `).join('');
+        }
+
+        /* ── Lightbox ── */
+        function openLightbox(url, name, w, h, size) {
+            const lb = document.getElementById('lightbox');
+            document.getElementById('lightboxImg').src = url;
+            document.getElementById('lightboxCaption').textContent = `${name}  —  ${w}×${h}  —  ${size}`;
+            lb.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeLightbox(e) {
+            if (e && e.target.tagName === 'IMG') return;
+            document.getElementById('lightbox').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+        /* ── Value renderers ── */
+        function renderValue(value, key = '') {
+            if (value === null || value === undefined) return '<span class="text-gray-400">N/A</span>';
+            if (typeof value === 'boolean')
+                return value ? '<span class="text-green-600 font-medium">✓ Yes</span>'
+                             : '<span class="text-red-600 font-medium">✗ No</span>';
+            if (Array.isArray(value)) {
+                if (!value.length) return '<span class="text-gray-400">Empty</span>';
+                return `<div class="flex flex-wrap gap-1">${value.map(v =>
+                    `<span class="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs">${v}</span>`).join('')}</div>`;
+            }
+            if (typeof value === 'object') return renderNestedObject(value);
+
+            if (key === 'classification') return classificationBadge(value);
+            if (key === 'dataSensitivity') return sensitivityBadge(value);
+            if (key === 'securityLevel') {
+                const c = ['green','blue','yellow','yellow','orange','red'][Math.min(value,5)] || 'gray';
+                return `<span class="inline-flex items-center px-2 py-0.5 rounded text-sm font-medium bg-${c}-100 text-${c}-800">Level ${value}</span>`;
+            }
+            return `<span class="text-gray-700">${value}</span>`;
+        }
+
+        function renderNestedObject(obj, depth = 0) {
+            const entries = Object.entries(obj);
+            if (!entries.length) return '<span class="text-gray-400">Empty</span>';
+            return `<div class="${depth?'pl-3 border-l-2 border-gray-200 ml-1':''}">
+                ${entries.map(([k,v]) => `<div class="py-1">
+                    <span class="text-gray-500 text-sm">${formatKey(k)}:</span>
+                    <span class="ml-2">${renderValue(v, k)}</span>
+                </div>`).join('')}</div>`;
+        }
+
+        function classificationBadge(c) {
+            const m = {'PUBLIC':'bg-green-100 text-green-800 border-green-300','INTERNAL':'bg-blue-100 text-blue-800 border-blue-300',
+                'CONFIDENTIAL':'bg-yellow-100 text-yellow-800 border-yellow-300','RESTRICTED':'bg-orange-100 text-orange-800 border-orange-300',
+                'TOP SECRET':'bg-red-100 text-red-800 border-red-300'};
+            return `<span class="px-3 py-1 rounded-full text-xs font-bold border ${m[c]||'bg-gray-100 text-gray-800 border-gray-300'}">${c}</span>`;
+        }
+        function sensitivityBadge(s) {
+            const m = {'NONE':'text-green-600','LOW':'text-blue-600','MEDIUM':'text-yellow-600','HIGH':'text-orange-600 font-semibold','CRITICAL':'text-red-600 font-bold'};
+            return `<span class="${m[s]||'text-gray-600'}">${s}</span>`;
+        }
+
+        function formatKey(key) { return key.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase()).trim(); }
+        function formatFileSize(b) { if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+
+        function toggleRawJson() {
+            const el = document.getElementById('rawJson');
+            const ic = document.getElementById('jsonToggleIcon');
+            el.classList.toggle('hidden');
+            ic.style.transform = el.classList.contains('hidden') ? '' : 'rotate(90deg)';
+        }
+
+        function showError(msg) { errorMessage.textContent = msg; errorDiv.classList.remove('hidden'); }
+    </script>
 </body>
 </html>
