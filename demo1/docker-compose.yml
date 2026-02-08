@@ -40,6 +40,7 @@ services:
     ports:
       - "4566:4566"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./init-scripts/deploy-lambda.sh:/etc/localstack/init/ready.d/deploy-lambda.sh
       - ./lambda_ocr:/etc/localstack/init/ready.d/lambda_src
       - localstack_data:/var/lib/localstack
