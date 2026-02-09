@@ -1,0 +1,74 @@
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────
+#  PDF & Image Text Extraction Stack
+#  Frontend (Nginx) ➜ Backend (Flask API) ➜ LocalStack Lambda
+# ─────────────────────────────────────────────────────────
+
+services:
+
+  # ── Frontend: Nginx serving HTML + Tailwind CSS ──
+  frontend:
+    build: ./frontend
+    container_name: ocr-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - ocr-net
+
+  # ── Backend: Flask API receives uploads, invokes Lambda ──
+  backend:
+    build: ./backend
+    container_name: ocr-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+      - LAMBDA_FUNCTION_NAME=ocr-extract
+    depends_on:
+      localstack:
+        condition: service_healthy
+    volumes:
+      - upload-data:/tmp/uploads
+    networks:
+      - ocr-net
+
+  # ── LocalStack: Lambda + S3 emulation ──
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: ocr-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,s3,iam,logs
+      - DEBUG=0
+      - LAMBDA_EXECUTOR=docker
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - LAMBDA_DOCKER_NETWORK=ocr-net
+    volumes:
+      - ./localstack-init:/etc/localstack/init/ready.d
+      - ./lambda:/opt/lambda-src
+      - /var/run/docker.sock:/var/run/docker.sock
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - ocr-net
+
+volumes:
+  upload-data:
+  localstack-data:
+
+networks:
+  ocr-net:
+    name: ocr-net
+    driver: bridge
