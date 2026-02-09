@@ -1,6 +1,22 @@
 version: "3.8"
 
+# Explicit network so LAMBDA_DOCKER_NETWORK is always predictable
+networks:
+  ls:
+    name: ls
+
 services:
+  # ── Build the Lambda container image (exits after build) ──
+  lambda-build:
+    build:
+      context: ./lambda_ocr
+    image: ocr-lambda:latest
+    networks:
+      - ls
+    entrypoint: ["echo", "Lambda image built successfully"]
+    restart: "no"
+
+  # ── Frontend ──
   web:
     image: nginx:alpine
     ports:
@@ -8,15 +24,17 @@ services:
     volumes:
       - ./index.html:/usr/share/nginx/html/index.html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - ls
     depends_on:
       - backend
     restart: unless-stopped
 
+  # ── Flask Backend ──
   backend:
     build: .
     volumes:
       - extracted_data:/data
-      - ./lambda_ocr:/app/lambda_ocr:ro
     environment:
       - PYTHONUNBUFFERED=1
       - AWS_DEFAULT_REGION=us-east-1
@@ -24,28 +42,34 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - LOCALSTACK_ENDPOINT=http://localstack:4566
       - LAMBDA_FUNCTION_NAME=ocr-extract-text
-      - LAMBDA_HANDLER_PATH=/app/lambda_ocr/handler.py
+      - LAMBDA_IMAGE_URI=ocr-lambda:latest
+    networks:
+      - ls
     depends_on:
       localstack:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── LocalStack (Lambda v2 — runs Lambda functions in Docker containers) ──
   localstack:
-    build:
-      context: .
-      dockerfile: Dockerfile.localstack
+    image: localstack/localstack:3.8
     environment:
       - SERVICES=lambda
       - EAGER_SERVICE_LOADING=1
-      - LAMBDA_EXECUTOR=local
-      - PROVIDER_OVERRIDE_LAMBDA=legacy
       - DEBUG=0
+      - LAMBDA_DOCKER_NETWORK=ls
     ports:
       - "4566:4566"
+    networks:
+      - ls
     volumes:
+      # Docker socket is REQUIRED for Lambda v2 (container-based execution)
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./init-scripts/deploy-lambda.sh:/etc/localstack/init/ready.d/deploy-lambda.sh
-      - ./lambda_ocr:/etc/localstack/init/ready.d/lambda_src:ro
       - localstack_data:/var/lib/localstack
+    depends_on:
+      lambda-build:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "bash", "-c", "curl -sf http://localhost:4566/_localstack/health | grep -q '\"lambda\"'"]
       interval: 5s

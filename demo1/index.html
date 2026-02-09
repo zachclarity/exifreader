@@ -416,14 +416,15 @@
             try {
                 const resp = await fetch('/api/lambda-status');
                 const data = await resp.json();
+                const funcNames = (data.functions || []).map(f => `${f.name} (${f.state})`).join(', ');
                 if (data.deployed) {
                     dot.className = 'w-2 h-2 rounded-full bg-green-500';
                     text.className = 'text-green-700';
-                    text.textContent = `Lambda: ✓ ready (${data.allFunctions.join(', ')})`;
+                    text.textContent = `Lambda: ✓ ready — ${funcNames || data.functionName}`;
                 } else {
                     dot.className = 'w-2 h-2 rounded-full bg-yellow-500';
                     text.className = 'text-yellow-700';
-                    text.textContent = `Lambda: ${data.message}`;
+                    text.textContent = `Lambda: ${data.message} [image: ${data.imageUri || '?'}]`;
                 }
             } catch (err) {
                 dot.className = 'w-2 h-2 rounded-full bg-red-500';
@@ -437,14 +438,15 @@
             const text = document.getElementById('lambdaStatusText');
             dot.className = 'w-2 h-2 rounded-full bg-yellow-500 animate-pulse';
             text.className = 'text-yellow-700';
-            text.textContent = 'Lambda: deploying…';
+            text.textContent = 'Lambda: deploying (this may take 30-60s for first container pull)…';
             try {
                 const resp = await fetch('/api/lambda-status?deploy=true');
                 const data = await resp.json();
+                const funcNames = (data.functions || []).map(f => `${f.name} (${f.state})`).join(', ');
                 if (data.deployed) {
                     dot.className = 'w-2 h-2 rounded-full bg-green-500';
                     text.className = 'text-green-700';
-                    text.textContent = `Lambda: ✓ ${data.message} (${data.allFunctions.join(', ')})`;
+                    text.textContent = `Lambda: ✓ ${data.message} — ${funcNames}`;
                 } else {
                     dot.className = 'w-2 h-2 rounded-full bg-red-500';
                     text.className = 'text-red-600';

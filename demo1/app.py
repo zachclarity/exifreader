@@ -9,8 +9,6 @@ import time
 import base64
 import shutil
 import logging
-import zipfile
-import tempfile
 
 import fitz  # PyMuPDF
 import boto3
@@ -34,10 +32,8 @@ os.makedirs(EXTRACT_DIR, exist_ok=True)
 # AWS / LocalStack config
 LOCALSTACK_ENDPOINT = os.environ.get("LOCALSTACK_ENDPOINT", "http://localstack:4566")
 LAMBDA_FUNCTION_NAME = os.environ.get("LAMBDA_FUNCTION_NAME", "ocr-extract-text")
+LAMBDA_IMAGE_URI = os.environ.get("LAMBDA_IMAGE_URI", "ocr-lambda:latest")
 AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-
-# Path to the lambda handler source (mounted into container)
-LAMBDA_HANDLER_PATH = os.environ.get("LAMBDA_HANDLER_PATH", "/app/lambda_ocr/handler.py")
 
 lambda_client = None
 _lambda_deployed = False
@@ -65,63 +61,8 @@ def get_lambda_client():
     return lambda_client
 
 
-def _build_lambda_zip():
-    """Build a zip file containing handler.py and return the bytes."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        if os.path.isfile(LAMBDA_HANDLER_PATH):
-            zf.write(LAMBDA_HANDLER_PATH, "handler.py")
-        else:
-            # Inline fallback handler
-            handler_code = '''
-import base64, json, subprocess, tempfile, time, os
-
-def handler(event, context):
-    start = time.time()
-    body = event
-    if isinstance(event.get("body"), str):
-        body = json.loads(event["body"])
-
-    image_b64 = body.get("image_b64", "")
-    image_ext = body.get("image_ext", "png")
-    image_name = body.get("image_name", "unknown")
-
-    if not image_b64:
-        return {"statusCode": 400, "body": json.dumps({"error": "No image_b64 provided"})}
-
-    try:
-        img_bytes = base64.b64decode(image_b64)
-        with tempfile.NamedTemporaryFile(suffix=f".{image_ext}", delete=False) as tmp:
-            tmp.write(img_bytes)
-            tmp_path = tmp.name
-
-        out_base = tmp_path + "_out"
-        result = subprocess.run(
-            ["tesseract", tmp_path, out_base, "-l", "eng", "--psm", "6"],
-            capture_output=True, text=True, timeout=30,
-        )
-
-        out_txt_path = out_base + ".txt"
-        text = ""
-        if os.path.exists(out_txt_path):
-            with open(out_txt_path, "r") as f:
-                text = f.read().strip()
-            os.unlink(out_txt_path)
-        os.unlink(tmp_path)
-
-        elapsed_ms = round((time.time() - start) * 1000, 2)
-        return {"statusCode": 200, "body": json.dumps({"image_name": image_name, "text": text, "elapsed_ms": elapsed_ms})}
-    except Exception as e:
-        elapsed_ms = round((time.time() - start) * 1000, 2)
-        return {"statusCode": 500, "body": json.dumps({"error": str(e), "image_name": image_name, "elapsed_ms": elapsed_ms})}
-'''
-            zf.writestr("handler.py", handler_code)
-    buf.seek(0)
-    return buf.read()
-
-
 def ensure_lambda_deployed(force=False):
-    """Check if Lambda exists; create it if missing. Returns (ok, message)."""
+    """Check if Lambda exists; create it from container image if missing."""
     global _lambda_deployed
 
     if _lambda_deployed and not force:
@@ -134,47 +75,65 @@ def ensure_lambda_deployed(force=False):
         resp = client.get_function(FunctionName=LAMBDA_FUNCTION_NAME)
         state = resp.get("Configuration", {}).get("State", "Unknown")
         app.logger.info("Lambda '%s' exists (state=%s)", LAMBDA_FUNCTION_NAME, state)
-        _lambda_deployed = True
-        return True, f"Lambda exists (state={state})"
+
+        # If Pending, wait a bit
+        if state == "Pending":
+            for _ in range(15):
+                time.sleep(3)
+                resp = client.get_function(FunctionName=LAMBDA_FUNCTION_NAME)
+                state = resp.get("Configuration", {}).get("State", "")
+                if state == "Active":
+                    break
+
+        _lambda_deployed = (state == "Active")
+        return _lambda_deployed, f"Lambda exists (state={state})"
+
     except ClientError as e:
         if e.response["Error"]["Code"] != "ResourceNotFoundException":
             msg = f"Error checking Lambda: {e}"
             app.logger.error(msg)
             return False, msg
-        app.logger.info("Lambda '%s' not found, creating...", LAMBDA_FUNCTION_NAME)
+        app.logger.info("Lambda '%s' not found, creating from image '%s'...",
+                        LAMBDA_FUNCTION_NAME, LAMBDA_IMAGE_URI)
 
-    # Build the zip and create the function
+    # Create the function using the container image
     try:
-        zip_bytes = _build_lambda_zip()
-        app.logger.info("Built lambda zip (%d bytes)", len(zip_bytes))
-
         client.create_function(
             FunctionName=LAMBDA_FUNCTION_NAME,
-            Runtime="python3.12",
+            PackageType="Image",
+            Code={"ImageUri": LAMBDA_IMAGE_URI},
             Role="arn:aws:iam::000000000000:role/lambda-role",
-            Handler="handler.handler",
-            Code={"ZipFile": zip_bytes},
             Timeout=60,
             MemorySize=512,
-            Environment={"Variables": {"PATH": "/var/lang/bin:/usr/local/bin:/usr/bin:/bin:/opt/bin"}},
         )
-        app.logger.info("Lambda '%s' created successfully", LAMBDA_FUNCTION_NAME)
+        app.logger.info("Lambda create-function call succeeded for '%s'", LAMBDA_FUNCTION_NAME)
 
         # Wait for Active state
-        for _ in range(10):
-            time.sleep(1)
+        state = "Pending"
+        for _ in range(20):
+            time.sleep(3)
             try:
                 resp = client.get_function(FunctionName=LAMBDA_FUNCTION_NAME)
                 state = resp.get("Configuration", {}).get("State", "")
+                app.logger.info("Lambda state: %s", state)
                 if state == "Active":
                     break
-            except Exception:
-                pass
+                if state == "Failed":
+                    reason = resp.get("Configuration", {}).get("StateReason", "unknown")
+                    msg = f"Lambda creation failed: {reason}"
+                    app.logger.error(msg)
+                    return False, msg
+            except Exception as ex:
+                app.logger.warning("Polling Lambda state: %s", ex)
 
-        _lambda_deployed = True
-        return True, "Lambda created successfully"
+        _lambda_deployed = (state == "Active")
+        return _lambda_deployed, f"Lambda created (state={state})"
 
     except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code == "ResourceConflictException":
+            _lambda_deployed = True
+            return True, "Lambda already exists (conflict)"
         msg = f"Failed to create Lambda: {e}"
         app.logger.error(msg)
         return False, msg
@@ -185,16 +144,12 @@ def ensure_lambda_deployed(force=False):
 
 
 # ──────────────────────────────────────────────
-#  Helpers
+#  Routes
 # ──────────────────────────────────────────────
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-# ──────────────────────────────────────────────
-#  Routes
-# ──────────────────────────────────────────────
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -203,7 +158,7 @@ def health():
 
 @app.route("/api/lambda-status", methods=["GET"])
 def lambda_status():
-    """Check and optionally deploy the Lambda. Use ?deploy=true to force redeploy."""
+    """Check and optionally deploy the Lambda. ?deploy=true to force."""
     force = request.args.get("deploy", "").lower() == "true"
 
     if force:
@@ -212,21 +167,26 @@ def lambda_status():
 
     ok, message = ensure_lambda_deployed(force=force)
 
-    # Also try to list functions for debugging
     funcs = []
     try:
         client = get_lambda_client()
         resp = client.list_functions()
-        funcs = [f["FunctionName"] for f in resp.get("Functions", [])]
+        for f in resp.get("Functions", []):
+            funcs.append({
+                "name": f["FunctionName"],
+                "state": f.get("State", "?"),
+                "runtime": f.get("Runtime", f.get("PackageType", "?")),
+            })
     except Exception as e:
-        funcs = [f"Error listing: {e}"]
+        funcs = [{"name": f"Error: {e}", "state": "error"}]
 
     return jsonify({
         "deployed": ok,
         "message": message,
         "functionName": LAMBDA_FUNCTION_NAME,
+        "imageUri": LAMBDA_IMAGE_URI,
         "endpoint": LOCALSTACK_ENDPOINT,
-        "allFunctions": funcs,
+        "functions": funcs,
     })
 
 
@@ -470,10 +430,13 @@ def ocr_benchmark(job_id):
                 raw_payload = resp["Payload"].read().decode("utf-8")
                 call_elapsed = round((time.time() - call_start) * 1000, 2)
 
-                # Check for Lambda-level errors
                 if resp.get("FunctionError"):
-                    app.logger.warning("Lambda FunctionError for %s: %s", img_file, raw_payload[:300])
-                    lambda_errors.append({"image_name": img_file, "error": f"FunctionError: {raw_payload[:200]}"})
+                    app.logger.warning("Lambda FunctionError for %s: %s",
+                                       img_file, raw_payload[:300])
+                    lambda_errors.append({
+                        "image_name": img_file,
+                        "error": f"FunctionError: {raw_payload[:200]}",
+                    })
                     lambda_results.append({
                         "image_name": img_file,
                         "text": "",
@@ -485,7 +448,6 @@ def ocr_benchmark(job_id):
 
                 resp_payload = json.loads(raw_payload)
 
-                # Parse the body (Lambda returns statusCode + body)
                 if isinstance(resp_payload.get("body"), str):
                     body = json.loads(resp_payload["body"])
                 else:
@@ -499,7 +461,8 @@ def ocr_benchmark(job_id):
                 })
             except Exception as e:
                 call_elapsed = round((time.time() - call_start) * 1000, 2)
-                app.logger.warning("Lambda invoke failed for %s (%.0fms): %s", img_file, call_elapsed, e)
+                app.logger.warning("Lambda invoke failed for %s (%.0fms): %s",
+                                   img_file, call_elapsed, e)
                 lambda_errors.append({"image_name": img_file, "error": str(e)})
                 lambda_results.append({
                     "image_name": img_file,
@@ -509,7 +472,10 @@ def ocr_benchmark(job_id):
                     "error": str(e),
                 })
     elif not deploy_ok:
-        lambda_errors.append({"image_name": "(all)", "error": f"Lambda not available: {deploy_msg}"})
+        lambda_errors.append({
+            "image_name": "(all)",
+            "error": f"Lambda not available: {deploy_msg}",
+        })
 
     lambda_total_ms = round((time.time() - lambda_total_start) * 1000, 2)
 
@@ -535,7 +501,7 @@ def ocr_benchmark(job_id):
             try:
                 page = doc[page_num]
 
-                # Render page to image at 300 DPI for OCR quality
+                # Render page to image at 300 DPI
                 mat = fitz.Matrix(300 / 72, 300 / 72)
                 pix = page.get_pixmap(matrix=mat)
                 img_bytes = pix.tobytes("png")
@@ -552,7 +518,8 @@ def ocr_benchmark(job_id):
                 })
             except Exception as e:
                 page_elapsed = round((time.time() - page_start) * 1000, 2)
-                app.logger.warning("Direct OCR failed on page %s: %s", page_num + 1, e)
+                app.logger.warning("Direct OCR failed on page %s: %s",
+                                   page_num + 1, e)
                 direct_results.append({
                     "page": page_num + 1,
                     "text": "",
@@ -563,7 +530,9 @@ def ocr_benchmark(job_id):
         doc.close()
     except Exception as e:
         app.logger.error("Direct OCR failed to open PDF: %s", e)
-        direct_results.append({"page": 0, "text": "", "elapsed_ms": 0, "error": str(e)})
+        direct_results.append({
+            "page": 0, "text": "", "elapsed_ms": 0, "error": str(e),
+        })
 
     direct_total_ms = round((time.time() - direct_total_start) * 1000, 2)
 
