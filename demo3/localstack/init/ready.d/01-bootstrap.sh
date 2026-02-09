@@ -1,35 +1,37 @@
+
 #!/usr/bin/env sh
 set -eu
 
-echo "[bootstrap] creating bucket..."
-awslocal s3 mb s3://uploads >/dev/null 2>&1 || true
+echo "[bootstrap] create bucket"
+awslocal s3 mb s3://uploads || true
 
-echo "[bootstrap] building lambda zip (python zipfile)..."
+echo "[bootstrap] set S3 CORS policy"
+awslocal s3api put-bucket-cors --bucket uploads --cors-configuration '{
+ "CORSRules":[{
+   "AllowedOrigins":["*"],
+   "AllowedMethods":["GET","PUT","POST","HEAD"],
+   "AllowedHeaders":["*"],
+   "ExposeHeaders":["ETag"]
+ }]
+}'
+
+echo "[bootstrap] build lambda zip"
 python3 - <<'PY'
-import zipfile, os
-src = "/opt/lambda/presign/handler.py"
-out = "/tmp/presign.zip"
-with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as z:
-    z.write(src, arcname="handler.py")
-print("Wrote", out)
+import zipfile
+z=zipfile.ZipFile("/tmp/lambda.zip","w")
+z.write("/opt/lambda/presign/handler.py","handler.py")
+z.close()
 PY
 
-echo "[bootstrap] (re)creating lambda..."
 awslocal lambda delete-function --function-name presign-upload >/dev/null 2>&1 || true
 
-awslocal lambda create-function   --function-name presign-upload   --runtime python3.11   --handler handler.handler   --zip-file fileb:///tmp/presign.zip   --role arn:aws:iam::000000000000:role/lambda-role   --environment "Variables={LOCALSTACK_ENDPOINT=http://localstack:4566,UPLOAD_BUCKET=uploads}"   >/dev/null
+awslocal lambda create-function   --function-name presign-upload   --runtime python3.11   --handler handler.handler   --zip-file fileb:///tmp/lambda.zip   --role arn:aws:iam::000000000000:role/lambda-role   --environment "Variables={LOCALSTACK_ENDPOINT=http://localstack:4566,UPLOAD_BUCKET=uploads}"
 
-echo "[bootstrap] creating function url (CORS enabled)..."
-awslocal lambda create-function-url-config   --function-name presign-upload   --auth-type NONE   --cors "AllowOrigins=*,AllowMethods=POST,AllowHeaders=content-type"   >/dev/null
+echo "[bootstrap] create function URL with CORS"
+awslocal lambda create-function-url-config   --function-name presign-upload   --auth-type NONE   --cors "AllowOrigins=*,AllowMethods=GET,POST,OPTIONS,PUT,AllowHeaders=*"
 
-FUNCTION_URL="$(awslocal lambda get-function-url-config --function-name presign-upload --query 'FunctionUrl' --output text)"
-echo "[bootstrap] Function URL: $FUNCTION_URL"
+URL=$(awslocal lambda get-function-url-config --function-name presign-upload --query FunctionUrl --output text)
 
-echo "[bootstrap] writing /web/config.json for frontend..."
-cat > /web/config.json <<EOF
-{
-  "functionUrl": "${FUNCTION_URL}"
-}
-EOF
+echo "{ \"functionUrl\": \"$URL\" }" > /web/config.json
 
-echo "[bootstrap] done."
+echo "[bootstrap complete]"
