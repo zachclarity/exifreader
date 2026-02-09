@@ -1,0 +1,23 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,s3,iam,logs
+      - DEBUG=1
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - "./localstack/init:/etc/localstack/init"
+      - "./localstack/lambda:/opt/lambda"
+      - "./web:/web"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - "./web:/usr/share/nginx/html:ro"
+    depends_on:
+      - localstack

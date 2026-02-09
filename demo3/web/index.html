@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>LocalStack File Upload</title>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-xl mx-auto p-6">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h1 class="text-2xl font-semibold">Upload to LocalStack S3</h1>
+      <p class="text-slate-600 mt-1">Shows file size + type and uploads via presigned URL.</p>
+
+      <div class="mt-6 space-y-4">
+        <input id="file" type="file"
+          class="block w-full text-sm text-slate-700
+                 file:mr-4 file:py-2 file:px-4 file:rounded-lg
+                 file:border-0 file:text-sm file:font-semibold
+                 file:bg-slate-900 file:text-white hover:file:bg-slate-700
+                 border rounded-lg p-2" />
+
+        <div class="rounded-xl bg-slate-100 p-4">
+          <div class="text-sm text-slate-700"><span class="font-semibold">Name:</span> <span id="name">—</span></div>
+          <div class="text-sm text-slate-700"><span class="font-semibold">Type:</span> <span id="type">—</span></div>
+          <div class="text-sm text-slate-700"><span class="font-semibold">Size:</span> <span id="size">—</span></div>
+        </div>
+
+        <button id="upload"
+          class="w-full rounded-xl bg-indigo-600 text-white py-3 font-semibold hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          Upload
+        </button>
+
+        <div id="status" class="text-sm text-slate-700"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const fileEl = document.getElementById("file");
+  const uploadBtn = document.getElementById("upload");
+  const statusEl = document.getElementById("status");
+  const nameEl = document.getElementById("name");
+  const typeEl = document.getElementById("type");
+  const sizeEl = document.getElementById("size");
+
+  uploadBtn.disabled = true;
+
+  function humanBytes(bytes) {
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0, v = bytes;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  fileEl.addEventListener("change", () => {
+    const f = fileEl.files?.[0];
+    if (!f) {
+      nameEl.textContent = typeEl.textContent = sizeEl.textContent = "—";
+      uploadBtn.disabled = true;
+      return;
+    }
+    nameEl.textContent = f.name;
+    typeEl.textContent = f.type || "application/octet-stream";
+    sizeEl.textContent = humanBytes(f.size);
+    statusEl.textContent = "";
+    uploadBtn.disabled = false;
+  });
+
+  async function loadConfig() {
+    const r = await fetch("./config.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("Missing web/config.json (functionUrl not set).");
+    return r.json();
+  }
+
+  uploadBtn.addEventListener("click", async () => {
+    const f = fileEl.files?.[0];
+    if (!f) return;
+
+    uploadBtn.disabled = true;
+    statusEl.textContent = "Requesting presigned upload URL...";
+
+    try {
+      const cfg = await loadConfig();
+      if (!cfg.functionUrl) throw new Error("config.json functionUrl is empty (bootstrap may not have run yet).");
+
+      const presignResp = await fetch(cfg.functionUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: f.name,
+          contentType: f.type || "application/octet-stream"
+        })
+      });
+
+      if (!presignResp.ok) {
+        const t = await presignResp.text();
+        throw new Error(`Presign failed (${presignResp.status}): ${t}`);
+      }
+
+      const { uploadUrl, bucket, key } = await presignResp.json();
+
+      statusEl.textContent = "Uploading to S3 (LocalStack)...";
+
+      const putResp = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": f.type || "application/octet-stream" },
+        body: f
+      });
+
+      if (!putResp.ok) {
+        const t = await putResp.text();
+        throw new Error(`Upload failed (${putResp.status}): ${t}`);
+      }
+
+      statusEl.textContent = `✅ Uploaded: s3://${bucket}/${key}`;
+    } catch (e) {
+      statusEl.textContent = `❌ ${e.message}`;
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
