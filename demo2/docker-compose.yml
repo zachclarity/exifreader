@@ -2,23 +2,73 @@ version: "3.8"
 
 # ─────────────────────────────────────────────────────────
 #  PDF & Image Text Extraction Stack
-#  Frontend (Nginx) ➜ Backend (Flask API) ➜ LocalStack Lambda
+#
+#  Startup order:
+#    1. lambda-builder  → builds the zip (runs once, exits)
+#    2. localstack      → starts with Tesseract pre-installed,
+#                          init script deploys the Lambda
+#    3. backend         → Flask API (waits for LocalStack healthy)
+#    4. frontend        → Nginx + Tailwind CSS
 # ─────────────────────────────────────────────────────────
 
 services:
 
-  # ── Frontend: Nginx serving HTML + Tailwind CSS ──
-  frontend:
-    build: ./frontend
-    container_name: ocr-frontend
+  # ── Build Lambda zip (runs once then exits) ──
+  lambda-builder:
+    image: python:3.11-slim
+    container_name: ocr-lambda-builder
+    volumes:
+      - ./lambda:/src:ro
+      - lambda-zip:/out
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        echo "══ Building Lambda zip ══"
+        apt-get update -qq && apt-get install -y -qq zip > /dev/null 2>&1
+        mkdir -p /tmp/pkg
+        pip install --quiet --no-cache-dir -t /tmp/pkg \
+            PyPDF2==3.0.1 \
+            pytesseract==0.3.10 \
+            Pillow==10.3.0 \
+            pdf2image==1.17.0
+        cp /src/handler.py /tmp/pkg/
+        cd /tmp/pkg
+        zip -r9 /out/lambda.zip . > /dev/null 2>&1
+        echo "✓ Lambda zip: $$(du -sh /out/lambda.zip | cut -f1)"
+
+  # ── LocalStack with Tesseract + Poppler pre-installed ──
+  localstack:
+    build: ./localstack-custom
+    container_name: ocr-localstack
     ports:
-      - "8080:80"
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,iam,logs
+      - DEBUG=1
+      - EAGER_SERVICE_LOADING=1
+      # Use legacy Lambda provider with local executor so the handler
+      # runs inside this container where Tesseract is installed.
+      - PROVIDER_OVERRIDE_LAMBDA=legacy
+      - LAMBDA_EXECUTOR=local
+    volumes:
+      - ./localstack-init:/etc/localstack/init/ready.d:ro
+      - lambda-zip:/opt/lambda-zip:ro
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
     depends_on:
-      - backend
+      lambda-builder:
+        condition: service_completed_successfully
     networks:
       - ocr-net
 
-  # ── Backend: Flask API receives uploads, invokes Lambda ──
+  # ── Flask Backend ──
   backend:
     build: ./backend
     container_name: ocr-backend
@@ -33,40 +83,23 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
-    volumes:
-      - upload-data:/tmp/uploads
     networks:
       - ocr-net
 
-  # ── LocalStack: Lambda + S3 emulation ──
-  localstack:
-    image: localstack/localstack:3.4
-    container_name: ocr-localstack
+  # ── Nginx Frontend ──
+  frontend:
+    build: ./frontend
+    container_name: ocr-frontend
     ports:
-      - "4566:4566"
-    environment:
-      - SERVICES=lambda,s3,iam,logs
-      - DEBUG=0
-      - LAMBDA_EXECUTOR=docker
-      - DOCKER_HOST=unix:///var/run/docker.sock
-      - LAMBDA_DOCKER_NETWORK=ocr-net
-    volumes:
-      - ./localstack-init:/etc/localstack/init/ready.d
-      - ./lambda:/opt/lambda-src
-      - /var/run/docker.sock:/var/run/docker.sock
-      - localstack-data:/var/lib/localstack
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
+      - "8080:80"
+    depends_on:
+      - backend
     networks:
       - ocr-net
 
 volumes:
-  upload-data:
   localstack-data:
+  lambda-zip:
 
 networks:
   ocr-net:
