@@ -1,0 +1,102 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack-ocr
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,s3
+      - DEBUG=1
+      - PERSISTENCE=1
+      - AWS_DEFAULT_REGION=us-east-1
+      - LOCALSTACK_HOST=localstack
+      - LAMBDA_EXECUTOR=docker-reuse
+      - LAMBDA_DOCKER_NETWORK=localstack-ocr-net
+      # Prefer real OCR image when available; scripts will auto-fallback to ZIP if not supported
+      - USE_IMAGE_LAMBDA=1
+      - OCR_BUCKET=ocr-images
+      - JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -XX:MaxRAMPercentage=75 -Djava.security.egd=file:/dev/./urandom
+    volumes:
+      - "./localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro"
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - build-out:/opt/build-out
+    networks:
+      - localstack-ocr-net
+    depends_on:
+      - lambda-zip-build
+      - lambda-image-build
+
+  # Build ZIP lambda (always available)
+  lambda-zip-build:
+    image: maven:3.9-eclipse-temurin-21
+    container_name: localstack-ocr-zip-build
+    working_dir: /app
+    volumes:
+      - "./lambda-zip:/app"
+      - build-out:/out
+    command: >
+      bash -lc "
+        mvn -q -DskipTests package &&
+        cp -f target/ocr-lambda-zip.jar /out/ocr-lambda-zip.jar &&
+        echo 'Built /out/ocr-lambda-zip.jar'
+      "
+    networks:
+      - localstack-ocr-net
+
+  # Build the Lambda container image locally (does NOT require LocalStack ECR).
+  # LocalStack will still need container-image Lambda support; init will fallback to ZIP if unsupported.
+  lambda-image-build:
+    image: docker:27-cli
+    container_name: localstack-ocr-image-build
+    working_dir: /work
+    environment:
+      - IMAGE_NAME=localstack-ocr-tesseract:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "./lambda-image:/work/lambda-image:ro"
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      apk add --no-cache bash &&
+      echo "[image-build] Building ${IMAGE_NAME}..." &&
+      docker build -t ${IMAGE_NAME} /work/lambda-image &&
+      echo "[image-build] Built ${IMAGE_NAME}"
+    networks:
+      - localstack-ocr-net
+
+  web:
+    image: nginx:alpine
+    container_name: localstack-ocr-web
+    ports:
+      - "8080:80"
+    volumes:
+      - "./frontend:/usr/share/nginx/html:ro"
+    networks:
+      - localstack-ocr-net
+
+  benchmark:
+    image: python:3.12-alpine
+    container_name: localstack-ocr-benchmark
+    working_dir: /bench
+    environment:
+      - LAMBDA_URL=http://localstack:4566/lambda-url/ocr-lambda/
+    volumes:
+      - "./benchmark:/bench:ro"
+      - "./test-images:/bench/test-images:ro"
+    entrypoint: ["sh","-lc"]
+    command: >
+      apk add --no-cache curl &&
+      python /bench/benchmark.py
+    networks:
+      - localstack-ocr-net
+    depends_on:
+      - localstack
+    profiles: ["bench"]
+
+volumes:
+  localstack-data:
+  build-out:
+
+networks:
+  localstack-ocr-net:
+    name: localstack-ocr-net

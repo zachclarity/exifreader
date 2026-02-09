@@ -27,8 +27,6 @@ services:
       - DEBUG=1
       # Force Lambda to run INSIDE this container (where tesseract is installed)
       - LAMBDA_EXECUTOR=local
-      - LAMBDA_RUNTIME_EXECUTOR=local
-      - PROVIDER_OVERRIDE_LAMBDA=legacy
       # CORS
       - DISABLE_CORS_CHECKS=1
       - DISABLE_CUSTOM_CORS_APIGATEWAY=1
@@ -38,7 +36,7 @@ services:
       - ./lambda:/etc/localstack/init/ready.d/lambda-code:ro
       - localstack_data:/var/lib/localstack
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4566/health"]
       interval: 5s
       timeout: 5s
       retries: 10

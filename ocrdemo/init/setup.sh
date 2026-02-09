@@ -17,7 +17,7 @@ zip -r /tmp/ocr-lambda.zip handler.py
 echo "Creating Lambda function..."
 awslocal lambda create-function \
     --function-name ocr-service \
-    --runtime python3.11 \
+    --runtime python3.9 \
     --handler handler.lambda_handler \
     --zip-file fileb:///tmp/ocr-lambda.zip \
     --role arn:aws:iam::000000000000:role/lambda-role \

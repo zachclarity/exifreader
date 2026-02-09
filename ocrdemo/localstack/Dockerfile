@@ -1,4 +1,4 @@
-FROM localstack/localstack:latest
+FROM localstack/localstack:1.4
 
 # Install Tesseract OCR and dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

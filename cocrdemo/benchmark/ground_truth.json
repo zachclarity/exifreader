@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "file": "case1_clean.png",
+      "text": "LOCALSTACK OCR\\nTesseract Test 123\\nHello World"
+    },
+    {
+      "file": "case2_small.png",
+      "text": "quick brown fox\\njumps over 13 lazy dogs"
+    },
+    {
+      "file": "case3_noise.png",
+      "text": "Noise Test: A1B2C3\\nLine Two: 9876"
+    },
+    {
+      "file": "case4_skew.png",
+      "text": "SKEWED TEXT\\nRotate +5 deg"
+    }
+  ]
+}
