@@ -1245,6 +1245,191 @@ pages.forEach(p => {
 
 This code builds a visual timing breakdown where each page gets a horizontal bar chart. The bar widths are proportional to the slowest page (`maxTime`), so you can visually compare extraction vs. OCR time across pages. Purple bars represent image extraction, pink bars represent OCR processing.
 
+#### JavaScript — Run History (localStorage Persistence)
+
+Every successful extraction (from any of the three services) is automatically saved to [`localStorage`](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) and displayed in a comparison table at the bottom of the page. Data persists across browser sessions.
+
+**Storage Functions:**
+
+```javascript
+const STORAGE_KEY = 'ocr_extract_history';
+
+function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { return []; }
+}
+
+function persistHistory(runs) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)); }
+    catch(e) {
+        // localStorage full — drop oldest half
+        if (e.name === 'QuotaExceededError') {
+            runs.splice(0, Math.floor(runs.length / 2));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
+        }
+    }
+}
+```
+
+- **`loadHistory()`** — Reads the JSON array from localStorage, wrapped in try/catch in case the stored data is corrupted.
+- **`persistHistory()`** — Writes the array back. Handles the [`QuotaExceededError`](https://developer.mozilla.org/en-US/docs/Web/API/Storage/setItem#exceptions) (localStorage is typically limited to ~5MB per origin) by discarding the oldest half of records and retrying.
+
+**Saving a run:**
+
+```javascript
+function saveRun(data) {
+    const runs = loadHistory();
+    data.id = Date.now() + '-' + Math.random().toString(36).slice(2,8);
+    data.timestamp = new Date().toISOString();
+    // Truncate stored text to 2000 chars to save space
+    if (data.text && data.text.length > 2000) data.text = data.text.slice(0, 2000) + '…';
+    runs.push(data);
+    persistHistory(runs);
+    renderHistory();
+}
+```
+
+Each run gets a unique `id` (timestamp + random suffix) and an [ISO 8601](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toISOString) timestamp. Extracted text is truncated to 2000 characters to prevent localStorage from filling up on large documents. `saveRun()` is called at the end of each successful extraction handler:
+
+```javascript
+// After Image OCR completes:
+saveRun({ method:'image-ocr', filename:file.name, fileSize:file.size, pages:1,
+          words:d.word_count, chars:d.text_length,
+          roundtripMs:parseFloat(totalMs), processingMs:null, extractMs:null,
+          ocrMs:d.processing_time_ms, text:d.text||'' });
+
+// After PDF Text Extract completes:
+saveRun({ method:'pdf-text', filename:file.name, fileSize:file.size, pages:d.page_count,
+          words:d.total_word_count, chars:d.total_char_count,
+          roundtripMs:parseFloat(totalMs), processingMs:d.processing_time_ms,
+          extractMs:null, ocrMs:null, text:d.text||'' });
+
+// After PDF OCR completes:
+saveRun({ method:'pdf-ocr', filename:file.name, fileSize:file.size, pages:d.page_count,
+          words:d.total_word_count, chars:d.total_char_count,
+          roundtripMs:parseFloat(roundtripMs), processingMs:t.pipeline_ms,
+          extractMs:t.total_image_extract_ms, ocrMs:t.total_ocr_ms, text:d.text||'' });
+```
+
+**Each stored record shape:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique identifier (e.g. `"1707580800000-a3f2x1"`) |
+| `timestamp` | string | ISO 8601 datetime |
+| `method` | string | `"image-ocr"`, `"pdf-text"`, or `"pdf-ocr"` |
+| `filename` | string | Original filename |
+| `fileSize` | number | File size in bytes |
+| `pages` | number | Number of pages (1 for images) |
+| `words` | number | Total word count |
+| `chars` | number | Total character count |
+| `roundtripMs` | number | Client-side total time (network + processing) |
+| `processingMs` | number | Server-side processing time (null for images) |
+| `extractMs` | number | Image extraction time (PDF OCR only) |
+| `ocrMs` | number | Tesseract OCR time (Image OCR and PDF OCR) |
+| `text` | string | Extracted text (truncated to 2000 chars) |
+
+**Sortable table with column headers:**
+
+```javascript
+function sortHistory(field) {
+    if (historySortField === field) { historySortAsc = !historySortAsc; }
+    else { historySortField = field; historySortAsc = true; }
+    renderHistory();
+}
+```
+
+Clicking any column header calls `sortHistory()` which toggles between ascending/descending order. The current sort column shows a `▲` or `▼` arrow indicator. The table supports sorting by any of the 12 data columns.
+
+**Aggregate summary:**
+
+```javascript
+function renderHistorySummary(runs) {
+    // Calculates: total runs, runs by method, total words/chars,
+    // average/fastest/slowest round-trip times
+}
+```
+
+A summary bar at the bottom of the table shows:
+- Run counts by method (green = image, blue = pdf-text, pink = pdf-ocr)
+- Total words and characters across all runs
+- Average, fastest, and slowest round-trip times
+
+**Text preview modal:**
+
+The eye icon (👁) on each row opens a modal overlay showing the full extracted text (up to 2000 stored chars) with a copy button. Press `Escape` or click outside to close.
+
+**Export CSV:**
+
+```javascript
+function exportHistoryCSV() {
+    const headers = ['#','timestamp','method','filename','file_size_bytes',...];
+    // ... builds CSV string from all runs
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ocr-extract-history.csv';
+    a.click();
+}
+```
+
+Creates a [Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob) from the CSV data and triggers a download via a dynamically created anchor element with [`URL.createObjectURL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL_static).
+
+**Delete and Clear:**
+
+- **Per-row delete** — the ✕ button calls `deleteRun(id)` which filters the run from the array and re-renders.
+- **Clear All** — calls `clearHistory()` which shows a [`confirm()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/confirm) dialog, then removes the entire localStorage key.
+
+#### JavaScript — Run History (localStorage Persistence)
+
+Every successful extraction is saved to [`localStorage`](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) so results persist across browser sessions and can be compared side by side.
+
+**Storage design:**
+
+```javascript
+const STORAGE_KEY = 'ocr_extract_history';
+
+function saveRun(data) {
+    const runs = loadHistory();
+    data.id = Date.now() + '-' + Math.random().toString(36).slice(2,8);
+    data.timestamp = new Date().toISOString();
+    if (data.text && data.text.length > 2000) data.text = data.text.slice(0, 2000) + '…';
+    runs.push(data);
+    persistHistory(runs);
+    renderHistory();
+}
+```
+
+Each run is stored as a JSON object with a unique ID (timestamp + random suffix to prevent collisions), the extraction method, filename, all timing metrics, and a truncated copy of the extracted text (capped at 2,000 characters to prevent localStorage from filling up — the default limit is ~5–10MB depending on the browser).
+
+**Quota handling:** If `localStorage` throws a [`QuotaExceededError`](https://developer.mozilla.org/en-US/docs/Web/API/DOMException#quotaexceedederror), the oldest half of the history is discarded and the save is retried. This self-healing pattern prevents the app from breaking when storage fills up.
+
+**Each saved run records:**
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `method` | Hardcoded per handler | `image-ocr`, `pdf-text`, or `pdf-ocr` |
+| `filename` | `file.name` | Original uploaded file name |
+| `fileSize` | `file.size` | File size in bytes |
+| `pages` | Response data | Page count (1 for images) |
+| `words` | Response data | Total word count |
+| `chars` | Response data | Total character count |
+| `roundtripMs` | `performance.now()` delta | Client-side total time (network + processing) |
+| `processingMs` | Response `processing_time_ms` or `pipeline_ms` | Server-side total |
+| `extractMs` | Response `total_image_extract_ms` | Image rendering time (PDF OCR only) |
+| `ocrMs` | Response `processing_time_ms` or `total_ocr_ms` | Tesseract time |
+| `text` | Response `text` (truncated to 2000 chars) | Extracted text preview |
+
+**The comparison table** at the bottom of the page renders all saved runs with:
+
+- **Sortable columns** — Click any header to sort ascending/descending. Sort state is tracked in `historySortField` and `historySortAsc` variables.
+- **Color-coded method badges** — Green for Image OCR, blue for PDF Text, pink for PDF OCR.
+- **Summary footer** — Aggregates: total runs by method, total words/chars, average/fastest/slowest round-trip times.
+- **Text preview modal** — Click the eye icon on any row to view the extracted text in a modal overlay. Press Escape or click outside to close.
+- **Export CSV** — Downloads the entire history as a CSV file for external analysis.
+- **Delete individual runs** — Click the × icon on any row.
+- **Clear all** — Requires confirmation before wiping localStorage.
+
 ---
 
 ### 5.9 `ocr_client.py` — CLI Client

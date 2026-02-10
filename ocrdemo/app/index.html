@@ -64,6 +64,14 @@
         .bar-extract { background:#a78bfa; }
         .bar-ocr { background:#f472b6; }
         .bar-text { background:#60a5fa; }
+        .history-row { transition:background 0.15s; }
+        .history-row:hover { background:rgba(255,255,255,0.03); }
+        .history-row:nth-child(odd) { background:rgba(255,255,255,0.01); }
+        .history-row:nth-child(odd):hover { background:rgba(255,255,255,0.04); }
+        .method-badge { padding:2px 8px; border-radius:6px; font-size:10px; font-weight:500; letter-spacing:0.03em; white-space:nowrap; }
+        .method-image-ocr { background:rgba(110,231,183,0.1); color:#6ee7b7; border:1px solid rgba(110,231,183,0.2); }
+        .method-pdf-text { background:rgba(96,165,250,0.1); color:#60a5fa; border:1px solid rgba(96,165,250,0.2); }
+        .method-pdf-ocr { background:rgba(244,114,182,0.1); color:#f472b6; border:1px solid rgba(244,114,182,0.2); }
     </style>
 </head>
 <body class="min-h-screen text-gray-200 antialiased">
@@ -322,6 +330,82 @@
             <div id="poError" class="hidden mb-8"><div class="rounded-2xl bg-red-950/30 border border-red-500/20 p-6 text-center"><p class="text-red-400 font-mono text-sm" id="poErrorMsg"></p></div></div>
         </div>
 
+        <!-- ═══════════════════════════════════ -->
+        <!-- RUN HISTORY / COMPARISON TABLE -->
+        <!-- ═══════════════════════════════════ -->
+        <div id="historySection" class="mt-16">
+            <div class="flex items-center justify-between mb-5">
+                <div class="flex items-center gap-3">
+                    <h2 class="text-lg font-display font-600 text-white">Run History</h2>
+                    <span id="historyCount" class="text-xs font-mono text-gray-500 bg-surface-700 px-2.5 py-1 rounded-full">0 runs</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="exportHistoryCSV()" id="historyExportBtn" class="hidden text-xs font-mono text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        Export CSV
+                    </button>
+                    <button onclick="clearHistory()" id="historyClearBtn" class="hidden text-xs font-mono text-red-400/60 hover:text-red-400 border border-red-500/20 hover:border-red-500/40 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        Clear All
+                    </button>
+                </div>
+            </div>
+
+            <!-- Empty state -->
+            <div id="historyEmpty" class="rounded-2xl border border-dashed border-gray-700 bg-surface-800 p-10 text-center">
+                <div class="mx-auto w-12 h-12 mb-4 rounded-xl bg-surface-700 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                </div>
+                <p class="text-gray-500 text-sm">No extractions yet. Results will appear here for comparison.</p>
+                <p class="text-gray-600 text-xs mt-1 font-mono">Stored in localStorage across sessions</p>
+            </div>
+
+            <!-- Table (hidden until data exists) -->
+            <div id="historyTableWrap" class="hidden rounded-2xl bg-surface-800 border border-white/5 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs font-mono">
+                        <thead>
+                            <tr class="bg-surface-700 text-gray-400">
+                                <th class="px-3 py-2.5 text-left w-8">#</th>
+                                <th class="px-3 py-2.5 text-left cursor-pointer hover:text-white transition-colors" onclick="sortHistory('timestamp')">Time <span id="sortArrow_timestamp" class="text-accent">▼</span></th>
+                                <th class="px-3 py-2.5 text-left cursor-pointer hover:text-white transition-colors" onclick="sortHistory('method')">Method</th>
+                                <th class="px-3 py-2.5 text-left cursor-pointer hover:text-white transition-colors" onclick="sortHistory('filename')">File</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('fileSize')">Size</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('pages')">Pages</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('words')">Words</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('chars')">Chars</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('roundtripMs')">Round-trip</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('processingMs')">Processing</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('extractMs')">Img Extract</th>
+                                <th class="px-3 py-2.5 text-right cursor-pointer hover:text-white transition-colors" onclick="sortHistory('ocrMs')">OCR</th>
+                                <th class="px-3 py-2.5 text-center w-16">Text</th>
+                                <th class="px-3 py-2.5 text-center w-8"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody"></tbody>
+                    </table>
+                </div>
+                <!-- Aggregate summary row -->
+                <div id="historySummary" class="px-4 py-3 border-t border-white/5 bg-surface-700/50 flex flex-wrap gap-4 text-xs font-mono text-gray-400">
+                </div>
+            </div>
+        </div>
+
+        <!-- Text preview modal -->
+        <div id="textModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-6" onclick="if(event.target===this)closeTextModal()">
+            <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+            <div class="relative w-full max-w-2xl max-h-[80vh] rounded-2xl bg-surface-800 border border-white/10 overflow-hidden flex flex-col">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
+                    <span id="textModalTitle" class="font-mono text-sm text-gray-300"></span>
+                    <div class="flex items-center gap-2">
+                        <button onclick="copyModalText()" class="text-xs font-mono text-accent/60 hover:text-accent transition-colors flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy</button>
+                        <button onclick="closeTextModal()" class="text-gray-500 hover:text-white transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                    </div>
+                </div>
+                <div id="textModalBody" class="flex-1 overflow-y-auto p-5 font-mono text-sm text-gray-300 leading-relaxed whitespace-pre-wrap"></div>
+            </div>
+        </div>
+
         <footer class="mt-16 text-center">
             <p class="text-gray-600 text-xs font-mono">Powered by Lambda Service · Tesseract OCR · PyMuPDF · Docker Compose</p>
         </footer>
@@ -429,6 +513,7 @@ document.getElementById('imgExtractBtn').addEventListener('click', async ()=>{
         document.getElementById('imgStatChars').textContent=d.text_length;
         document.getElementById('imgExtractedText').textContent=d.text||'(No text detected)';
         document.getElementById('imgResults').classList.remove('hidden');
+        saveRun({ method:'image-ocr', filename:file.name, fileSize:file.size, pages:1, words:d.word_count, chars:d.text_length, roundtripMs:parseFloat(totalMs), processingMs:null, extractMs:null, ocrMs:d.processing_time_ms, text:d.text||'' });
     } catch(err) { document.getElementById('imgErrorMsg').textContent=err.message; document.getElementById('imgError').classList.remove('hidden'); }
     finally { btn.disabled=false; btn.classList.remove('opacity-50','cursor-not-allowed'); document.getElementById('imgProcessing').classList.add('hidden'); document.getElementById('imgScanLine').classList.add('hidden'); }
 });
@@ -474,6 +559,7 @@ document.getElementById('ptExtractBtn').addEventListener('click', async ()=>{
             tbody.appendChild(tr);
         });
         document.getElementById('ptResults').classList.remove('hidden');
+        saveRun({ method:'pdf-text', filename:file.name, fileSize:file.size, pages:d.page_count, words:d.total_word_count, chars:d.total_char_count, roundtripMs:parseFloat(totalMs), processingMs:d.processing_time_ms, extractMs:null, ocrMs:null, text:d.text||'' });
     } catch(err) { document.getElementById('ptErrorMsg').textContent=err.message; document.getElementById('ptError').classList.remove('hidden'); }
     finally { btn.disabled=false; btn.classList.remove('opacity-50','cursor-not-allowed'); document.getElementById('ptProcessing').classList.add('hidden'); }
 });
@@ -523,9 +609,244 @@ document.getElementById('poExtractBtn').addEventListener('click', async ()=>{
             tbody.appendChild(tr);
         });
         document.getElementById('poResults').classList.remove('hidden');
+        saveRun({ method:'pdf-ocr', filename:file.name, fileSize:file.size, pages:d.page_count, words:d.total_word_count, chars:d.total_char_count, roundtripMs:parseFloat(roundtripMs), processingMs:t.pipeline_ms, extractMs:t.total_image_extract_ms, ocrMs:t.total_ocr_ms, text:d.text||'' });
     } catch(err) { document.getElementById('poErrorMsg').textContent=err.message; document.getElementById('poError').classList.remove('hidden'); }
     finally { btn.disabled=false; btn.classList.remove('opacity-50','cursor-not-allowed'); document.getElementById('poProcessing').classList.add('hidden'); }
 });
+
+// ========================================
+// RUN HISTORY — localStorage persistence
+// ========================================
+const STORAGE_KEY = 'ocr_extract_history';
+let historySortField = 'timestamp';
+let historySortAsc = false;
+
+function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { return []; }
+}
+
+function persistHistory(runs) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)); }
+    catch(e) {
+        // localStorage full — drop oldest half
+        if (e.name === 'QuotaExceededError') {
+            runs.splice(0, Math.floor(runs.length / 2));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
+        }
+    }
+}
+
+function saveRun(data) {
+    const runs = loadHistory();
+    data.id = Date.now() + '-' + Math.random().toString(36).slice(2,8);
+    data.timestamp = new Date().toISOString();
+    // Truncate stored text to 2000 chars to save space
+    if (data.text && data.text.length > 2000) data.text = data.text.slice(0, 2000) + '…';
+    runs.push(data);
+    persistHistory(runs);
+    renderHistory();
+}
+
+function deleteRun(id) {
+    const runs = loadHistory().filter(r => r.id !== id);
+    persistHistory(runs);
+    renderHistory();
+}
+
+function clearHistory() {
+    if (!confirm('Delete all run history? This cannot be undone.')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    renderHistory();
+}
+
+function sortHistory(field) {
+    if (historySortField === field) { historySortAsc = !historySortAsc; }
+    else { historySortField = field; historySortAsc = true; }
+    // Default timestamp to descending
+    if (field === 'timestamp' && historySortField === field) { /* keep toggle */ }
+    renderHistory();
+}
+
+function fmtTime(iso) {
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2,'0');
+    return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
+
+function fmtDate(iso) {
+    const d = new Date(iso);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[d.getMonth()]+' '+d.getDate();
+}
+
+function renderHistory() {
+    const runs = loadHistory();
+    const empty = document.getElementById('historyEmpty');
+    const wrap = document.getElementById('historyTableWrap');
+    const count = document.getElementById('historyCount');
+    const exportBtn = document.getElementById('historyExportBtn');
+    const clearBtn = document.getElementById('historyClearBtn');
+
+    count.textContent = runs.length + ' run' + (runs.length !== 1 ? 's' : '');
+
+    if (runs.length === 0) {
+        empty.classList.remove('hidden');
+        wrap.classList.add('hidden');
+        exportBtn.classList.add('hidden');
+        clearBtn.classList.add('hidden');
+        return;
+    }
+
+    empty.classList.add('hidden');
+    wrap.classList.remove('hidden');
+    exportBtn.classList.remove('hidden');
+    clearBtn.classList.remove('hidden');
+
+    // Sort
+    const sorted = [...runs].sort((a, b) => {
+        let va = a[historySortField], vb = b[historySortField];
+        if (va == null) va = -Infinity; if (vb == null) vb = -Infinity;
+        if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb||'').toLowerCase(); }
+        if (va < vb) return historySortAsc ? -1 : 1;
+        if (va > vb) return historySortAsc ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort arrows
+    document.querySelectorAll('[id^="sortArrow_"]').forEach(el => el.textContent = '');
+    const arrow = document.getElementById('sortArrow_' + historySortField);
+    if (arrow) arrow.textContent = historySortAsc ? ' ▲' : ' ▼';
+
+    // Build rows
+    const tbody = document.getElementById('historyTableBody');
+    tbody.innerHTML = '';
+
+    sorted.forEach((r, i) => {
+        const methodCls = r.method === 'image-ocr' ? 'method-image-ocr' :
+                          r.method === 'pdf-text' ? 'method-pdf-text' : 'method-pdf-ocr';
+        const methodLabel = r.method === 'image-ocr' ? 'Image OCR' :
+                            r.method === 'pdf-text' ? 'PDF Text' : 'PDF OCR';
+
+        const tr = document.createElement('tr');
+        tr.className = 'history-row text-gray-300 border-t border-white/5';
+        tr.innerHTML =
+            '<td class="px-3 py-2.5 text-gray-600">' + (i + 1) + '</td>' +
+            '<td class="px-3 py-2.5 text-gray-400" title="' + r.timestamp + '">' +
+                '<span class="text-gray-500">' + fmtDate(r.timestamp) + '</span> ' + fmtTime(r.timestamp) + '</td>' +
+            '<td class="px-3 py-2.5"><span class="method-badge ' + methodCls + '">' + methodLabel + '</span></td>' +
+            '<td class="px-3 py-2.5 text-white max-w-[120px] truncate" title="' + (r.filename||'') + '">' + (r.filename||'—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right text-gray-400">' + (r.fileSize ? formatBytes(r.fileSize) : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right">' + (r.pages||'—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right">' + (r.words!=null ? r.words.toLocaleString() : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right text-gray-400">' + (r.chars!=null ? r.chars.toLocaleString() : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right text-white font-medium">' + (r.roundtripMs!=null ? r.roundtripMs : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right">' + (r.processingMs!=null ? r.processingMs : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right text-purple-400">' + (r.extractMs!=null ? r.extractMs : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-right text-pink-400">' + (r.ocrMs!=null ? r.ocrMs : '—') + '</td>' +
+            '<td class="px-3 py-2.5 text-center">' +
+                (r.text ? '<button onclick="showTextModal(\'' + r.id + '\')" class="text-gray-500 hover:text-accent transition-colors" title="View text"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></button>' : '—') +
+            '</td>' +
+            '<td class="px-3 py-2.5 text-center"><button onclick="deleteRun(\'' + r.id + '\')" class="text-gray-600 hover:text-red-400 transition-colors" title="Delete"><svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button></td>';
+        tbody.appendChild(tr);
+    });
+
+    // Summary
+    renderHistorySummary(runs);
+}
+
+function renderHistorySummary(runs) {
+    const el = document.getElementById('historySummary');
+    const total = runs.length;
+    const byMethod = {};
+    let totalWords = 0, totalChars = 0, totalRoundtrip = 0, countRoundtrip = 0;
+    let fastestRt = Infinity, slowestRt = 0;
+
+    runs.forEach(r => {
+        byMethod[r.method] = (byMethod[r.method]||0) + 1;
+        totalWords += r.words || 0;
+        totalChars += r.chars || 0;
+        if (r.roundtripMs != null) {
+            totalRoundtrip += r.roundtripMs;
+            countRoundtrip++;
+            if (r.roundtripMs < fastestRt) fastestRt = r.roundtripMs;
+            if (r.roundtripMs > slowestRt) slowestRt = r.roundtripMs;
+        }
+    });
+
+    const avgRt = countRoundtrip > 0 ? (totalRoundtrip / countRoundtrip).toFixed(1) : '—';
+    const parts = [];
+    parts.push('<span class="text-gray-300">' + total + ' total runs</span>');
+    if (byMethod['image-ocr']) parts.push('<span class="text-accent">' + byMethod['image-ocr'] + ' image</span>');
+    if (byMethod['pdf-text']) parts.push('<span class="text-blue">' + byMethod['pdf-text'] + ' pdf-text</span>');
+    if (byMethod['pdf-ocr']) parts.push('<span class="text-pdf">' + byMethod['pdf-ocr'] + ' pdf-ocr</span>');
+    parts.push('<span>│</span>');
+    parts.push('<span>' + totalWords.toLocaleString() + ' words total</span>');
+    parts.push('<span>' + totalChars.toLocaleString() + ' chars total</span>');
+    parts.push('<span>│</span>');
+    parts.push('<span>Avg round-trip: <span class="text-white">' + avgRt + '</span>ms</span>');
+    if (fastestRt !== Infinity) parts.push('<span>Fastest: <span class="text-accent">' + fastestRt + '</span>ms</span>');
+    if (slowestRt > 0) parts.push('<span>Slowest: <span class="text-red-400">' + slowestRt + '</span>ms</span>');
+
+    el.innerHTML = parts.join('<span class="text-gray-700 mx-1">·</span>');
+}
+
+// ── Text modal ──
+function showTextModal(id) {
+    const runs = loadHistory();
+    const r = runs.find(x => x.id === id);
+    if (!r) return;
+    document.getElementById('textModalTitle').textContent = r.filename + ' — ' + r.method;
+    document.getElementById('textModalBody').textContent = r.text || '(empty)';
+    document.getElementById('textModal').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+function closeTextModal() {
+    document.getElementById('textModal').classList.add('hidden');
+    document.body.style.overflow = '';
+}
+function copyModalText() {
+    const text = document.getElementById('textModalBody').textContent;
+    navigator.clipboard.writeText(text);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTextModal(); });
+
+// ── Export CSV ──
+function exportHistoryCSV() {
+    const runs = loadHistory();
+    if (!runs.length) return;
+
+    const headers = ['#','timestamp','method','filename','file_size_bytes','pages','words','chars','roundtrip_ms','processing_ms','img_extract_ms','ocr_ms','text_preview'];
+    const csvRows = [headers.join(',')];
+
+    runs.forEach((r, i) => {
+        const preview = (r.text||'').slice(0, 100).replace(/"/g, '""').replace(/\n/g, ' ');
+        csvRows.push([
+            i + 1,
+            '"' + (r.timestamp||'') + '"',
+            r.method||'',
+            '"' + (r.filename||'').replace(/"/g, '""') + '"',
+            r.fileSize||'',
+            r.pages||'',
+            r.words||0,
+            r.chars||0,
+            r.roundtripMs||'',
+            r.processingMs||'',
+            r.extractMs||'',
+            r.ocrMs||'',
+            '"' + preview + '"'
+        ].join(','));
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'ocr-extract-history.csv'; a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ── Init ──
+renderHistory();
 </script>
 </body>
 </html>
