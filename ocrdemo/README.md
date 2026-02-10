@@ -1,4 +1,4 @@
-# OCR Extract — Lambda OCR Service
+# OCR Extract — Image & PDF OCR Service
 
 ## Quick Start
 
@@ -12,21 +12,42 @@ Open **http://localhost:8080** — ready in ~10 seconds.
 ## Architecture
 
 ```
-Browser (HTML/Tailwind/JS)
-  → Nginx :8080 (static + reverse proxy /api/ocr)
-    → Lambda Service :9000 (Python + Tesseract OCR)
-      POST /2015-03-31/functions/ocr-service/invocations
+                    ┌──────────────────────────────────┐
+                    │       Lambda Service :9000        │
+  Browser ──nginx──▶│                                  │
+                    │  /api/ocr ──▶ ocr-service        │
+                    │               Image → Tesseract   │
+                    │                                  │
+                    │  /api/pdf-ocr ──▶ pdf-ocr        │
+                    │               PDF → Extract Images│
+                    │                   → Tesseract OCR │
+                    └──────────────────────────────────┘
+
+PDF Pipeline: PDF → PyMuPDF renders pages as images → Tesseract OCR per image → Text
 ```
 
-## Project Structure
+## Services
 
-```
-ocr-app/
-├── docker-compose.yml
-├── app/index.html              # Tailwind CSS frontend + JS callOcrLambda()
-├── nginx/default.conf          # Static files + proxy /api/ocr → Lambda
-└── lambda/
-    ├── Dockerfile              # Python 3.11 + Tesseract OCR
-    ├── handler.py              # Lambda handler (same as AWS Lambda format)
-    └── server.py               # Lambda-compatible invoke endpoint
+| Endpoint | Function | Pipeline |
+|----------|----------|----------|
+| `/api/ocr` | `ocr-service` | Image → Tesseract → Text |
+| `/api/pdf-ocr` | `pdf-ocr` | PDF → Extract Images → Tesseract → Text |
+| `/api/pdf` | `pdf-extract` | PDF → Direct text extraction (no OCR) |
+
+## Timing Tracked
+
+- **Round-trip**: Client-side total (network + processing)
+- **Pipeline**: Server-side total
+- **Image Extract**: Time to render PDF pages as images (per page)
+- **OCR**: Tesseract processing time (per page)
+- **Per-page breakdown**: Individual extract + OCR times
+
+## CLI Client
+
+```bash
+pip install requests
+
+python ocr_client.py image.png              # Image OCR
+python ocr_client.py document.pdf           # PDF → Image → OCR
+python ocr_client.py *.png *.pdf -o out.csv # Batch to CSV
 ```

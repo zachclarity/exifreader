@@ -1,156 +1,104 @@
 #!/usr/bin/env python3
 """
-OCR CLI Client — Send images to the Lambda OCR service and get results as CSV.
+OCR/PDF CLI Client — Send images or PDFs to the Lambda service, print CSV.
 
 Usage:
     python ocr_client.py image.png
-    python ocr_client.py image1.jpg image2.png image3.tiff
-    python ocr_client.py *.png
-    python ocr_client.py image.png --url http://localhost:9000
-    python ocr_client.py image.png --no-header
-    python ocr_client.py image.png --output results.csv
+    python ocr_client.py document.pdf
+    python ocr_client.py *.png *.pdf
+    python ocr_client.py doc.pdf -o results.csv
+    python ocr_client.py scan.jpg --direct
 
 Requires: pip install requests
 """
 
-import argparse
-import base64
-import csv
-import io
-import os
-import sys
-import time
+import argparse, base64, csv, os, sys, time
 
 try:
     import requests
 except ImportError:
-    print("Error: 'requests' package required. Install with: pip install requests", file=sys.stderr)
-    sys.exit(1)
+    print("Error: pip install requests", file=sys.stderr); sys.exit(1)
 
+PDF_EXTS = {".pdf"}
+IMG_EXTS = {".png",".jpg",".jpeg",".tiff",".tif",".bmp",".gif",".webp"}
 
-DEFAULT_URL = "http://localhost:8080/api/ocr"
-DIRECT_URL = "http://localhost:9000/2015-03-31/functions/ocr-service/invocations"
+def encode(fp):
+    with open(fp,"rb") as f: return base64.b64encode(f.read()).decode()
 
+def call_img_ocr(path, url):
+    fn = os.path.basename(path); b64 = encode(path); sz = os.path.getsize(path)
+    t=time.time(); r=requests.post(url,json={"image":b64,"filename":fn},timeout=120)
+    ms=round((time.time()-t)*1000,2); r.raise_for_status(); d=r.json()
+    if "error" in d: raise RuntimeError(d["error"])
+    d["total_time_ms"]=ms; d["file_size_bytes"]=sz; return d
 
-def encode_image(filepath: str) -> str:
-    """Read an image file and return base64-encoded string."""
-    with open(filepath, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
-
-
-def call_ocr(image_path: str, url: str) -> dict:
-    """Send image to OCR Lambda service and return results with total round-trip time."""
-    filename = os.path.basename(image_path)
-    image_b64 = encode_image(image_path)
-    file_size = os.path.getsize(image_path)
-
-    payload = {"image": image_b64, "filename": filename}
-
-    start = time.time()
-    resp = requests.post(url, json=payload, timeout=60)
-    total_ms = round((time.time() - start) * 1000, 2)
-
-    resp.raise_for_status()
-    data = resp.json()
-
-    if "error" in data:
-        raise RuntimeError(data["error"])
-
-    data["total_time_ms"] = total_ms
-    data["file_size_bytes"] = file_size
-    return data
-
+def call_pdf_ocr(path, url):
+    fn = os.path.basename(path); b64 = encode(path); sz = os.path.getsize(path)
+    t=time.time(); r=requests.post(url,json={"pdf":b64,"filename":fn},timeout=300)
+    ms=round((time.time()-t)*1000,2); r.raise_for_status(); d=r.json()
+    if "error" in d: raise RuntimeError(d["error"])
+    d["total_time_ms"]=ms; d["file_size_actual"]=sz; return d
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="OCR CLI — Extract text from images via the Lambda OCR service"
-    )
-    parser.add_argument(
-        "images",
-        nargs="+",
-        help="Image file(s) to process (PNG, JPG, TIFF, BMP)",
-    )
-    parser.add_argument(
-        "--url",
-        default=DEFAULT_URL,
-        help=f"OCR service URL (default: {DEFAULT_URL})",
-    )
-    parser.add_argument(
-        "--direct",
-        action="store_true",
-        help=f"Call Lambda container directly at {DIRECT_URL} (bypass nginx)",
-    )
-    parser.add_argument(
-        "--no-header",
-        action="store_true",
-        help="Omit CSV header row",
-    )
-    parser.add_argument(
-        "--output", "-o",
-        help="Write CSV to file instead of stdout",
-    )
+    ap = argparse.ArgumentParser(description="OCR/PDF CLI")
+    ap.add_argument("files", nargs="+")
+    ap.add_argument("--url", default="http://localhost:8080")
+    ap.add_argument("--direct", action="store_true", help="Bypass nginx, call :9000 directly")
+    ap.add_argument("--no-header", action="store_true")
+    ap.add_argument("-o","--output")
+    a = ap.parse_args()
 
-    args = parser.parse_args()
+    fields = ["filename","type","file_size","total_ms","pipeline_ms","img_extract_ms","ocr_ms","pages","words","chars","text"]
+    out = open(a.output,"w",newline="",encoding="utf-8") if a.output else sys.stdout
+    w = csv.DictWriter(out, fieldnames=fields, quoting=csv.QUOTE_MINIMAL)
+    if not a.no_header: w.writeheader()
 
-    url = DIRECT_URL if args.direct else args.url
-
-    # CSV setup
-    fieldnames = [
-        "filename",
-        "file_size_bytes",
-        "total_time_ms",
-        "ocr_time_ms",
-        "word_count",
-        "char_count",
-        "extracted_text",
-    ]
-
-    out = open(args.output, "w", newline="", encoding="utf-8") if args.output else sys.stdout
-    writer = csv.DictWriter(out, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
-
-    if not args.no_header:
-        writer.writeheader()
-
-    errors = 0
-    for image_path in args.images:
-        if not os.path.isfile(image_path):
-            print(f"Error: File not found: {image_path}", file=sys.stderr)
-            errors += 1
-            continue
-
+    errs = 0
+    for fp in a.files:
+        if not os.path.isfile(fp): print(f"  ✗ Not found: {fp}",file=sys.stderr); errs+=1; continue
+        ext = os.path.splitext(fp)[1].lower()
         try:
-            result = call_ocr(image_path, url)
-            writer.writerow({
-                "filename": result.get("filename", os.path.basename(image_path)),
-                "file_size_bytes": result.get("file_size_bytes", ""),
-                "total_time_ms": result.get("total_time_ms", ""),
-                "ocr_time_ms": result.get("processing_time_ms", ""),
-                "word_count": result.get("word_count", 0),
-                "char_count": result.get("text_length", 0),
-                "extracted_text": result.get("text", "").replace("\n", "\\n"),
-            })
+            if ext in PDF_EXTS:
+                url = f"http://localhost:9000/2015-03-31/functions/pdf-ocr/invocations" if a.direct else f"{a.url}/api/pdf-ocr"
+                d = call_pdf_ocr(fp, url)
+                t = d.get("timing",{})
+                w.writerow({
+                    "filename":d.get("filename",""), "type":"pdf",
+                    "file_size":d.get("file_size_actual",""),
+                    "total_ms":d.get("total_time_ms",""),
+                    "pipeline_ms":t.get("pipeline_ms",""),
+                    "img_extract_ms":t.get("total_image_extract_ms",""),
+                    "ocr_ms":t.get("total_ocr_ms",""),
+                    "pages":d.get("page_count",""),
+                    "words":d.get("total_word_count",0),
+                    "chars":d.get("total_char_count",0),
+                    "text":d.get("text","").replace("\n","\\n"),
+                })
+                print(f"  ✓ {os.path.basename(fp)} — {d.get('page_count','?')}pg, {d.get('total_word_count',0)}w, pipeline {t.get('pipeline_ms','?')}ms (extract {t.get('total_image_extract_ms','?')}ms + ocr {t.get('total_ocr_ms','?')}ms), round-trip {d.get('total_time_ms','?')}ms", file=sys.stderr)
+                for p in d.get("pages",[]):
+                    print(f"      Page {p['page']}: extract={p['image_extract_ms']}ms  ocr={p['ocr_ms']}ms  words={p['word_count']}  img={p['image_size_bytes']}B", file=sys.stderr)
+            elif ext in IMG_EXTS:
+                url = f"http://localhost:9000/2015-03-31/functions/ocr-service/invocations" if a.direct else f"{a.url}/api/ocr"
+                d = call_img_ocr(fp, url)
+                w.writerow({
+                    "filename":d.get("filename",""), "type":"image",
+                    "file_size":d.get("file_size_bytes",""),
+                    "total_ms":d.get("total_time_ms",""),
+                    "pipeline_ms":"","img_extract_ms":"",
+                    "ocr_ms":d.get("processing_time_ms",""),
+                    "pages":1, "words":d.get("word_count",0),
+                    "chars":d.get("text_length",0),
+                    "text":d.get("text","").replace("\n","\\n"),
+                })
+                print(f"  ✓ {os.path.basename(fp)} — {d['word_count']}w, ocr {d['processing_time_ms']}ms, round-trip {d['total_time_ms']}ms", file=sys.stderr)
+            else:
+                print(f"  ✗ Unsupported: {fp}",file=sys.stderr); errs+=1; continue
             out.flush()
-
-            # Print progress to stderr so it doesn't mix with CSV on stdout
-            print(
-                f"  ✓ {os.path.basename(image_path)} — "
-                f"{result['word_count']} words, "
-                f"OCR {result['processing_time_ms']}ms, "
-                f"Total {result['total_time_ms']}ms",
-                file=sys.stderr,
-            )
-
         except Exception as e:
-            print(f"  ✗ {image_path}: {e}", file=sys.stderr)
-            errors += 1
+            print(f"  ✗ {fp}: {e}",file=sys.stderr); errs+=1
 
-    if args.output:
-        out.close()
-        print(f"\nResults saved to {args.output}", file=sys.stderr)
+    if a.output: out.close(); print(f"\nSaved to {a.output}",file=sys.stderr)
+    print(f"\nProcessed {len(a.files)-errs}/{len(a.files)} files",file=sys.stderr)
+    sys.exit(1 if errs else 0)
 
-    print(f"\nProcessed {len(args.images) - errors}/{len(args.images)} images", file=sys.stderr)
-    sys.exit(1 if errors else 0)
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()

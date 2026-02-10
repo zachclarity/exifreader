@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCR Extract — Image to Text</title>
+    <title>OCR Extract — Image & PDF to Text</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -11,13 +11,11 @@
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: {
-                        display: ['Outfit', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
+                    fontFamily: { display: ['Outfit','sans-serif'], mono: ['JetBrains Mono','monospace'] },
                     colors: {
-                        surface: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a26', 600: '#242436' },
-                        accent: { DEFAULT: '#6ee7b7', dim: '#34d399', glow: 'rgba(110, 231, 183, 0.15)' }
+                        surface: { 900:'#0a0a0f', 800:'#12121a', 700:'#1a1a26', 600:'#242436' },
+                        accent: { DEFAULT:'#6ee7b7', dim:'#34d399' },
+                        pdf: { DEFAULT:'#f472b6', dim:'#ec4899' }
                     }
                 }
             }
@@ -25,26 +23,36 @@
     </script>
     <style>
         body { font-family: 'Outfit', sans-serif; background: #0a0a0f; }
-        .grain-overlay {
-            position: fixed; inset: 0; z-index: 0; opacity: 0.03; pointer-events: none;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-        }
-        .drop-zone { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .drop-zone.dragover { border-color: #6ee7b7; background: rgba(110, 231, 183, 0.05); transform: scale(1.01); }
-        .glow-border { box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.1), 0 0 40px rgba(110, 231, 183, 0.03); }
-        .glow-border:hover { box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.2), 0 0 60px rgba(110, 231, 183, 0.06); }
-        .result-card { animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 20px rgba(110, 231, 183, 0.1); } 50% { box-shadow: 0 0 40px rgba(110, 231, 183, 0.25); } }
-        .processing { animation: pulse-glow 2s ease-in-out infinite; }
-        .stat-pill { background: linear-gradient(135deg, rgba(110, 231, 183, 0.08), rgba(110, 231, 183, 0.03)); border: 1px solid rgba(110, 231, 183, 0.12); }
-        .text-output { scrollbar-width: thin; scrollbar-color: #34d399 transparent; }
-        .text-output::-webkit-scrollbar { width: 4px; }
-        .text-output::-webkit-scrollbar-track { background: transparent; }
-        .text-output::-webkit-scrollbar-thumb { background: #34d399; border-radius: 2px; }
-        .preview-image { max-height: 200px; object-fit: contain; }
-        .scanning-line { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, #6ee7b7, transparent); animation: scan 2s ease-in-out infinite; }
-        @keyframes scan { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+        .grain-overlay { position:fixed; inset:0; z-index:0; opacity:0.03; pointer-events:none; background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E"); }
+        .drop-zone { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
+        .drop-zone.dragover-img { border-color:#6ee7b7; background:rgba(110,231,183,0.05); transform:scale(1.01); }
+        .drop-zone.dragover-pdf { border-color:#f472b6; background:rgba(244,114,182,0.05); transform:scale(1.01); }
+        .glow-green { box-shadow:0 0 0 1px rgba(110,231,183,0.1),0 0 40px rgba(110,231,183,0.03); }
+        .glow-green:hover { box-shadow:0 0 0 1px rgba(110,231,183,0.2),0 0 60px rgba(110,231,183,0.06); }
+        .glow-pink { box-shadow:0 0 0 1px rgba(244,114,182,0.1),0 0 40px rgba(244,114,182,0.03); }
+        .glow-pink:hover { box-shadow:0 0 0 1px rgba(244,114,182,0.2),0 0 60px rgba(244,114,182,0.06); }
+        .result-card { animation: slideUp 0.5s cubic-bezier(0.4,0,0.2,1) both; }
+        @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes pulse-green { 0%,100%{box-shadow:0 0 20px rgba(110,231,183,0.1)} 50%{box-shadow:0 0 40px rgba(110,231,183,0.25)} }
+        @keyframes pulse-pink { 0%,100%{box-shadow:0 0 20px rgba(244,114,182,0.1)} 50%{box-shadow:0 0 40px rgba(244,114,182,0.25)} }
+        .processing-green { animation: pulse-green 2s ease-in-out infinite; }
+        .processing-pink { animation: pulse-pink 2s ease-in-out infinite; }
+        .stat-pill-green { background:linear-gradient(135deg,rgba(110,231,183,0.08),rgba(110,231,183,0.03)); border:1px solid rgba(110,231,183,0.12); }
+        .stat-pill-pink { background:linear-gradient(135deg,rgba(244,114,182,0.08),rgba(244,114,182,0.03)); border:1px solid rgba(244,114,182,0.12); }
+        .text-output { scrollbar-width:thin; scrollbar-color:#34d399 transparent; }
+        .text-output::-webkit-scrollbar { width:4px; }
+        .text-output::-webkit-scrollbar-track { background:transparent; }
+        .text-output::-webkit-scrollbar-thumb { background:#34d399; border-radius:2px; }
+        .text-output-pdf::-webkit-scrollbar-thumb { background:#ec4899; }
+        .preview-image { max-height:200px; object-fit:contain; }
+        .scanning-line { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,#6ee7b7,transparent); animation:scan 2s ease-in-out infinite; }
+        @keyframes scan { 0%{top:0;opacity:0} 10%{opacity:1} 90%{opacity:1} 100%{top:100%;opacity:0} }
+        .tab-active-green { border-color:#6ee7b7; color:#6ee7b7; background:rgba(110,231,183,0.05); }
+        .tab-active-pink { border-color:#f472b6; color:#f472b6; background:rgba(244,114,182,0.05); }
+        .page-row:nth-child(odd) { background:rgba(255,255,255,0.02); }
+        .bar { height:6px; border-radius:3px; min-width:2px; transition:width 0.5s ease; }
+        .bar-extract { background:#a78bfa; }
+        .bar-ocr { background:#f472b6; }
     </style>
 </head>
 <body class="min-h-screen text-gray-200 antialiased">
@@ -52,254 +60,403 @@
     <div class="relative z-10 max-w-3xl mx-auto px-6 py-16">
 
         <!-- Header -->
-        <header class="mb-14 text-center">
+        <header class="mb-10 text-center">
             <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full text-xs font-mono text-accent border border-accent/20 bg-accent/5 tracking-wider uppercase">
                 <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
-                Lambda OCR Service
+                Lambda Extract Service
             </div>
             <h1 class="text-5xl font-display font-700 tracking-tight text-white mb-3">
                 OCR <span class="text-accent">Extract</span>
             </h1>
-            <p class="text-gray-500 font-light text-lg max-w-md mx-auto">
-                Upload an image. A Lambda function powered by Tesseract extracts every word.
+            <p class="text-gray-500 font-light text-lg max-w-lg mx-auto">
+                Upload an image or PDF. Lambda functions extract images, run OCR, and track every millisecond.
             </p>
         </header>
 
-        <!-- Upload Zone -->
-        <div id="uploadSection" class="mb-8">
-            <div id="dropZone" class="drop-zone glow-border relative rounded-2xl border border-dashed border-gray-700 bg-surface-800 p-12 text-center cursor-pointer transition-all duration-300 hover:border-gray-500">
-                <input type="file" id="fileInput" accept="image/*" class="hidden">
-                <div id="uploadPrompt">
-                    <div class="mx-auto w-16 h-16 mb-5 rounded-2xl bg-surface-700 flex items-center justify-center">
-                        <svg class="w-7 h-7 text-accent/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                        </svg>
-                    </div>
-                    <p class="text-white font-medium mb-1.5">Drop image here or click to browse</p>
-                    <p class="text-gray-500 text-sm">PNG, JPG, TIFF, BMP — up to 20MB</p>
-                </div>
-                <div id="previewState" class="hidden">
-                    <div class="relative inline-block rounded-lg overflow-hidden mb-4">
-                        <img id="previewImage" class="preview-image rounded-lg" alt="Preview">
-                        <div id="scanLine" class="scanning-line hidden"></div>
-                    </div>
-                    <p id="fileName" class="text-white font-medium font-mono text-sm"></p>
-                    <p id="fileSize" class="text-gray-500 text-xs mt-1"></p>
-                </div>
-            </div>
-            <div id="actionBar" class="hidden mt-4 flex gap-3">
-                <button id="extractBtn" class="flex-1 py-3.5 px-6 rounded-xl bg-accent text-surface-900 font-semibold text-sm tracking-wide hover:bg-accent-dim transition-all duration-200 flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-                    </svg>
-                    Extract Text
-                </button>
-                <button id="clearBtn" class="py-3.5 px-5 rounded-xl border border-gray-700 text-gray-400 font-medium text-sm hover:border-gray-500 hover:text-gray-300 transition-all duration-200">Clear</button>
-            </div>
+        <!-- Tab Switcher -->
+        <div class="flex gap-2 mb-8 justify-center">
+            <button id="tabImage" onclick="switchTab('image')" class="tab-active-green px-5 py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Image OCR
+            </button>
+            <button id="tabPdf" onclick="switchTab('pdf')" class="px-5 py-2.5 rounded-xl border border-gray-700 text-gray-500 font-medium text-sm transition-all duration-200 flex items-center gap-2 hover:text-gray-300 hover:border-gray-500">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                PDF Extract
+            </button>
         </div>
 
-        <!-- Processing -->
-        <div id="processing" class="hidden mb-8">
-            <div class="processing rounded-2xl bg-surface-800 border border-accent/20 p-8 text-center">
-                <div class="inline-flex items-center gap-3">
-                    <svg class="w-5 h-5 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                    <span class="text-accent font-mono text-sm tracking-wide">Running OCR via Lambda…</span>
+        <!-- ═══════════════════════════════════ -->
+        <!-- IMAGE OCR SECTION -->
+        <!-- ═══════════════════════════════════ -->
+        <div id="sectionImage">
+            <div class="mb-8">
+                <div id="imgDropZone" class="drop-zone glow-green relative rounded-2xl border border-dashed border-gray-700 bg-surface-800 p-12 text-center cursor-pointer transition-all duration-300 hover:border-gray-500">
+                    <input type="file" id="imgFileInput" accept="image/*" class="hidden">
+                    <div id="imgUploadPrompt">
+                        <div class="mx-auto w-16 h-16 mb-5 rounded-2xl bg-surface-700 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-accent/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        </div>
+                        <p class="text-white font-medium mb-1.5">Drop image here or click to browse</p>
+                        <p class="text-gray-500 text-sm">PNG, JPG, TIFF, BMP — up to 20MB</p>
+                    </div>
+                    <div id="imgPreviewState" class="hidden">
+                        <div class="relative inline-block rounded-lg overflow-hidden mb-4">
+                            <img id="imgPreview" class="preview-image rounded-lg" alt="Preview">
+                            <div id="imgScanLine" class="scanning-line hidden"></div>
+                        </div>
+                        <p id="imgFileName" class="text-white font-medium font-mono text-sm"></p>
+                        <p id="imgFileSize" class="text-gray-500 text-xs mt-1"></p>
+                    </div>
+                </div>
+                <div id="imgActionBar" class="hidden mt-4 flex gap-3">
+                    <button id="imgExtractBtn" class="flex-1 py-3.5 px-6 rounded-xl bg-accent text-surface-900 font-semibold text-sm tracking-wide hover:bg-accent-dim transition-all duration-200 flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        Extract Text
+                    </button>
+                    <button id="imgClearBtn" class="py-3.5 px-5 rounded-xl border border-gray-700 text-gray-400 font-medium text-sm hover:border-gray-500 hover:text-gray-300 transition-all duration-200">Clear</button>
                 </div>
             </div>
+            <div id="imgProcessing" class="hidden mb-8"><div class="processing-green rounded-2xl bg-surface-800 border border-accent/20 p-8 text-center"><div class="inline-flex items-center gap-3"><svg class="w-5 h-5 text-accent animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span class="text-accent font-mono text-sm tracking-wide">Running OCR via Lambda…</span></div></div></div>
+            <div id="imgResults" class="hidden">
+                <div class="result-card rounded-2xl bg-surface-800 glow-green overflow-hidden">
+                    <div class="px-6 py-4 border-b border-white/5 flex flex-wrap gap-3">
+                        <div class="stat-pill-green rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg><span class="font-mono text-xs text-gray-300">Total: <span id="imgStatTotal" class="text-white font-medium">—</span> ms</span></div>
+                        <div class="stat-pill-green rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="font-mono text-xs text-gray-300">OCR: <span id="imgStatOcr" class="text-white font-medium">—</span> ms</span></div>
+                        <div class="stat-pill-green rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg><span class="font-mono text-xs text-gray-300"><span id="imgStatWords" class="text-white font-medium">—</span> words</span></div>
+                        <div class="stat-pill-green rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><span class="font-mono text-xs text-gray-300"><span id="imgStatChars" class="text-white font-medium">—</span> chars</span></div>
+                    </div>
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-mono text-gray-500 tracking-widest uppercase">Extracted Text</h3>
+                            <button onclick="copyText('imgExtractedText',this)" class="text-xs font-mono text-accent/60 hover:text-accent transition-colors flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy</button>
+                        </div>
+                        <div id="imgExtractedText" class="text-output font-mono text-sm text-gray-300 leading-relaxed bg-surface-900 rounded-xl p-5 max-h-80 overflow-y-auto whitespace-pre-wrap border border-white/5"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="imgError" class="hidden mb-8"><div class="rounded-2xl bg-red-950/30 border border-red-500/20 p-6 text-center"><p class="text-red-400 font-mono text-sm" id="imgErrorMsg"></p></div></div>
         </div>
 
-        <!-- Results -->
-        <div id="results" class="hidden">
-            <div class="result-card rounded-2xl bg-surface-800 glow-border overflow-hidden">
-                <div class="px-6 py-4 border-b border-white/5 flex flex-wrap gap-3">
-                    <div class="stat-pill rounded-lg px-3.5 py-1.5 flex items-center gap-2">
-                        <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                        <span class="font-mono text-xs text-gray-300">Total: <span id="statTotalTime" class="text-white font-medium">—</span> ms</span>
-                    </div>
-                    <div class="stat-pill rounded-lg px-3.5 py-1.5 flex items-center gap-2">
-                        <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span class="font-mono text-xs text-gray-300">OCR: <span id="statOcrTime" class="text-white font-medium">—</span> ms</span>
-                    </div>
-                    <div class="stat-pill rounded-lg px-3.5 py-1.5 flex items-center gap-2">
-                        <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
-                        <span class="font-mono text-xs text-gray-300"><span id="statWords" class="text-white font-medium">—</span> words</span>
-                    </div>
-                    <div class="stat-pill rounded-lg px-3.5 py-1.5 flex items-center gap-2">
-                        <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="font-mono text-xs text-gray-300"><span id="statChars" class="text-white font-medium">—</span> chars</span>
-                    </div>
-                    <div class="stat-pill rounded-lg px-3.5 py-1.5 flex items-center gap-2">
-                        <svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="font-mono text-xs text-gray-300" id="statFile">—</span>
-                    </div>
-                </div>
-                <div class="p-6">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-xs font-mono text-gray-500 tracking-widest uppercase">Extracted Text</h3>
-                        <button id="copyBtn" class="text-xs font-mono text-accent/60 hover:text-accent transition-colors flex items-center gap-1.5">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                            Copy
-                        </button>
-                    </div>
-                    <div id="extractedText" class="text-output font-mono text-sm text-gray-300 leading-relaxed bg-surface-900 rounded-xl p-5 max-h-80 overflow-y-auto whitespace-pre-wrap border border-white/5"></div>
-                </div>
+        <!-- ═══════════════════════════════════ -->
+        <!-- PDF OCR SECTION -->
+        <!-- ═══════════════════════════════════ -->
+        <div id="sectionPdf" class="hidden">
+            <!-- Pipeline diagram -->
+            <div class="mb-6 rounded-xl border border-white/5 bg-surface-800 px-5 py-3 flex items-center justify-center gap-2 text-xs font-mono text-gray-500">
+                <span class="text-pdf">PDF</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-purple-400">Extract Images</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-accent">Tesseract OCR</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-white">Text</span>
             </div>
-        </div>
 
-        <!-- Error -->
-        <div id="errorBox" class="hidden mb-8">
-            <div class="rounded-2xl bg-red-950/30 border border-red-500/20 p-6 text-center">
-                <p class="text-red-400 font-mono text-sm" id="errorMessage"></p>
+            <div class="mb-8">
+                <div id="pdfDropZone" class="drop-zone glow-pink relative rounded-2xl border border-dashed border-gray-700 bg-surface-800 p-12 text-center cursor-pointer transition-all duration-300 hover:border-gray-500">
+                    <input type="file" id="pdfFileInput" accept=".pdf,application/pdf" class="hidden">
+                    <div id="pdfUploadPrompt">
+                        <div class="mx-auto w-16 h-16 mb-5 rounded-2xl bg-surface-700 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-pdf/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </div>
+                        <p class="text-white font-medium mb-1.5">Drop PDF here or click to browse</p>
+                        <p class="text-gray-500 text-sm">PDF files — up to 50MB</p>
+                    </div>
+                    <div id="pdfPreviewState" class="hidden">
+                        <div class="mx-auto w-16 h-16 mb-4 rounded-2xl bg-pdf/10 border border-pdf/20 flex items-center justify-center">
+                            <svg class="w-8 h-8 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </div>
+                        <p id="pdfFileName" class="text-white font-medium font-mono text-sm"></p>
+                        <p id="pdfFileSize" class="text-gray-500 text-xs mt-1"></p>
+                    </div>
+                </div>
+                <div id="pdfActionBar" class="hidden mt-4 flex gap-3">
+                    <button id="pdfExtractBtn" class="flex-1 py-3.5 px-6 rounded-xl bg-pdf text-surface-900 font-semibold text-sm tracking-wide hover:bg-pdf-dim transition-all duration-200 flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        Extract via OCR
+                    </button>
+                    <button id="pdfClearBtn" class="py-3.5 px-5 rounded-xl border border-gray-700 text-gray-400 font-medium text-sm hover:border-gray-500 hover:text-gray-300 transition-all duration-200">Clear</button>
+                </div>
             </div>
+
+            <div id="pdfProcessing" class="hidden mb-8"><div class="processing-pink rounded-2xl bg-surface-800 border border-pdf/20 p-8 text-center"><div class="inline-flex items-center gap-3"><svg class="w-5 h-5 text-pdf animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span class="text-pdf font-mono text-sm tracking-wide">Extracting images & running OCR…</span></div></div></div>
+
+            <div id="pdfResults" class="hidden">
+                <div class="result-card rounded-2xl bg-surface-800 glow-pink overflow-hidden">
+
+                    <!-- Timing summary pills -->
+                    <div class="px-6 py-4 border-b border-white/5 flex flex-wrap gap-3">
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg><span class="font-mono text-xs text-gray-300">Round-trip: <span id="pdfStatRoundtrip" class="text-white font-medium">—</span> ms</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span class="font-mono text-xs text-gray-300">Pipeline: <span id="pdfStatPipeline" class="text-white font-medium">—</span> ms</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg><span class="font-mono text-xs text-gray-300">Img Extract: <span id="pdfStatExtract" class="text-white font-medium">—</span> ms</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg><span class="font-mono text-xs text-gray-300">OCR: <span id="pdfStatOcr" class="text-white font-medium">—</span> ms</span></div>
+                    </div>
+                    <div class="px-6 py-3 border-b border-white/5 flex flex-wrap gap-3">
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg><span class="font-mono text-xs text-gray-300"><span id="pdfStatPages" class="text-white font-medium">—</span> pages</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg><span class="font-mono text-xs text-gray-300"><span id="pdfStatWords" class="text-white font-medium">—</span> words</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><svg class="w-3.5 h-3.5 text-pdf" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><span class="font-mono text-xs text-gray-300"><span id="pdfStatChars" class="text-white font-medium">—</span> chars</span></div>
+                        <div class="stat-pill-pink rounded-lg px-3.5 py-1.5 flex items-center gap-2"><span class="font-mono text-xs text-gray-300">DPI: <span id="pdfStatDpi" class="text-white font-medium">—</span></span></div>
+                    </div>
+
+                    <!-- Per-page timing table with bars -->
+                    <div class="px-6 py-4 border-b border-white/5">
+                        <h3 class="text-xs font-mono text-gray-500 tracking-widest uppercase mb-3">Per-Page Breakdown</h3>
+                        <div class="flex items-center gap-4 mb-3 text-[10px] font-mono text-gray-500">
+                            <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-2 rounded-sm bg-purple-400"></span> Image Extract</span>
+                            <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-2 rounded-sm bg-pink-400"></span> Tesseract OCR</span>
+                        </div>
+                        <div class="rounded-lg border border-white/5 overflow-hidden">
+                            <table class="w-full text-xs font-mono">
+                                <thead><tr class="bg-surface-700 text-gray-400">
+                                    <th class="px-3 py-2 text-left w-16">Page</th>
+                                    <th class="px-3 py-2 text-left">Timing</th>
+                                    <th class="px-3 py-2 text-right w-20">Extract</th>
+                                    <th class="px-3 py-2 text-right w-20">OCR</th>
+                                    <th class="px-3 py-2 text-right w-16">Words</th>
+                                    <th class="px-3 py-2 text-right w-16">Img</th>
+                                </tr></thead>
+                                <tbody id="pdfPageTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Full extracted text -->
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-mono text-gray-500 tracking-widest uppercase">Full OCR Text</h3>
+                            <button onclick="copyText('pdfExtractedText',this)" class="text-xs font-mono text-pdf/60 hover:text-pdf transition-colors flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy</button>
+                        </div>
+                        <div id="pdfExtractedText" class="text-output text-output-pdf font-mono text-sm text-gray-300 leading-relaxed bg-surface-900 rounded-xl p-5 max-h-96 overflow-y-auto whitespace-pre-wrap border border-white/5"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="pdfError" class="hidden mb-8"><div class="rounded-2xl bg-red-950/30 border border-red-500/20 p-6 text-center"><p class="text-red-400 font-mono text-sm" id="pdfErrorMsg"></p></div></div>
         </div>
 
         <footer class="mt-16 text-center">
-            <p class="text-gray-600 text-xs font-mono">Powered by Lambda OCR Service · Tesseract · Docker Compose</p>
+            <p class="text-gray-600 text-xs font-mono">Powered by Lambda Service · Tesseract OCR · PyMuPDF · Docker Compose</p>
         </footer>
     </div>
 
-    <script>
-        // ===== DOM =====
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const uploadPrompt = document.getElementById('uploadPrompt');
-        const previewState = document.getElementById('previewState');
-        const previewImage = document.getElementById('previewImage');
-        const scanLine = document.getElementById('scanLine');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-        const actionBar = document.getElementById('actionBar');
-        const extractBtn = document.getElementById('extractBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const processing = document.getElementById('processing');
-        const results = document.getElementById('results');
-        const errorBox = document.getElementById('errorBox');
-        const errorMessage = document.getElementById('errorMessage');
-        const extractedText = document.getElementById('extractedText');
-        const copyBtn = document.getElementById('copyBtn');
+<script>
+// ========================================
+// Tab Switching
+// ========================================
+function switchTab(tab) {
+    const iT = document.getElementById('tabImage'), pT = document.getElementById('tabPdf');
+    const iS = document.getElementById('sectionImage'), pS = document.getElementById('sectionPdf');
+    if (tab === 'image') {
+        iS.classList.remove('hidden'); pS.classList.add('hidden');
+        iT.className = 'tab-active-green px-5 py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 flex items-center gap-2';
+        pT.className = 'px-5 py-2.5 rounded-xl border border-gray-700 text-gray-500 font-medium text-sm transition-all duration-200 flex items-center gap-2 hover:text-gray-300 hover:border-gray-500';
+    } else {
+        pS.classList.remove('hidden'); iS.classList.add('hidden');
+        pT.className = 'tab-active-pink px-5 py-2.5 rounded-xl border font-medium text-sm transition-all duration-200 flex items-center gap-2';
+        iT.className = 'px-5 py-2.5 rounded-xl border border-gray-700 text-gray-500 font-medium text-sm transition-all duration-200 flex items-center gap-2 hover:text-gray-300 hover:border-gray-500';
+    }
+}
 
-        let selectedFile = null;
-        let base64Data = null;
+// ========================================
+// Utilities
+// ========================================
+function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+}
 
-        // ===== File Handling =====
-        dropZone.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault(); dropZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('image/')) handleFile(file);
+function copyText(id, btn) {
+    navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!';
+        setTimeout(() => { btn.innerHTML = orig; }, 2000);
+    });
+}
+
+// ========================================
+// IMAGE OCR
+// ========================================
+const imgDropZone = document.getElementById('imgDropZone');
+const imgFileInput = document.getElementById('imgFileInput');
+let imgFile = null, imgBase64 = null;
+
+imgDropZone.addEventListener('click', () => imgFileInput.click());
+imgDropZone.addEventListener('dragover', e => { e.preventDefault(); imgDropZone.classList.add('dragover-img'); });
+imgDropZone.addEventListener('dragleave', () => imgDropZone.classList.remove('dragover-img'));
+imgDropZone.addEventListener('drop', e => { e.preventDefault(); imgDropZone.classList.remove('dragover-img'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')) handleImageFile(f); });
+imgFileInput.addEventListener('change', e => { if(e.target.files[0]) handleImageFile(e.target.files[0]); });
+
+function handleImageFile(file) {
+    imgFile = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+        imgBase64 = e.target.result;
+        document.getElementById('imgPreview').src = imgBase64;
+        document.getElementById('imgFileName').textContent = file.name;
+        document.getElementById('imgFileSize').textContent = formatBytes(file.size);
+        document.getElementById('imgUploadPrompt').classList.add('hidden');
+        document.getElementById('imgPreviewState').classList.remove('hidden');
+        document.getElementById('imgActionBar').classList.remove('hidden');
+        document.getElementById('imgResults').classList.add('hidden');
+        document.getElementById('imgError').classList.add('hidden');
+    };
+    reader.readAsDataURL(file);
+}
+
+document.getElementById('imgClearBtn').addEventListener('click', () => {
+    imgFile=null; imgBase64=null; imgFileInput.value='';
+    document.getElementById('imgUploadPrompt').classList.remove('hidden');
+    document.getElementById('imgPreviewState').classList.add('hidden');
+    document.getElementById('imgActionBar').classList.add('hidden');
+    document.getElementById('imgResults').classList.add('hidden');
+    document.getElementById('imgError').classList.add('hidden');
+});
+
+/**
+ * Calls the Image OCR Lambda function.
+ * POST /api/ocr → Lambda ocr-service → Tesseract
+ */
+async function callOcrLambda(imageBase64, filename) {
+    const r = await fetch('/api/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({image:imageBase64, filename}) });
+    if (!r.ok) throw new Error('Lambda failed ('+r.status+'): '+await r.text());
+    const d = await r.json(); if(d.error) throw new Error(d.error); return d;
+}
+
+document.getElementById('imgExtractBtn').addEventListener('click', async () => {
+    if(!imgBase64||!imgFile) return;
+    const btn=document.getElementById('imgExtractBtn');
+    btn.disabled=true; btn.classList.add('opacity-50','cursor-not-allowed');
+    document.getElementById('imgProcessing').classList.remove('hidden');
+    document.getElementById('imgResults').classList.add('hidden');
+    document.getElementById('imgError').classList.add('hidden');
+    document.getElementById('imgScanLine').classList.remove('hidden');
+    try {
+        const t0=performance.now();
+        const data = await callOcrLambda(imgBase64, imgFile.name);
+        const totalMs=(performance.now()-t0).toFixed(2);
+        document.getElementById('imgStatTotal').textContent=totalMs;
+        document.getElementById('imgStatOcr').textContent=data.processing_time_ms;
+        document.getElementById('imgStatWords').textContent=data.word_count;
+        document.getElementById('imgStatChars').textContent=data.text_length;
+        document.getElementById('imgExtractedText').textContent=data.text||'(No text detected)';
+        document.getElementById('imgResults').classList.remove('hidden');
+    } catch(err) {
+        document.getElementById('imgErrorMsg').textContent=err.message;
+        document.getElementById('imgError').classList.remove('hidden');
+    } finally {
+        btn.disabled=false; btn.classList.remove('opacity-50','cursor-not-allowed');
+        document.getElementById('imgProcessing').classList.add('hidden');
+        document.getElementById('imgScanLine').classList.add('hidden');
+    }
+});
+
+// ========================================
+// PDF → IMAGE → OCR PIPELINE
+// ========================================
+const pdfDropZone = document.getElementById('pdfDropZone');
+const pdfFileInput = document.getElementById('pdfFileInput');
+let pdfFile = null, pdfBase64 = null;
+
+pdfDropZone.addEventListener('click', () => pdfFileInput.click());
+pdfDropZone.addEventListener('dragover', e => { e.preventDefault(); pdfDropZone.classList.add('dragover-pdf'); });
+pdfDropZone.addEventListener('dragleave', () => pdfDropZone.classList.remove('dragover-pdf'));
+pdfDropZone.addEventListener('drop', e => { e.preventDefault(); pdfDropZone.classList.remove('dragover-pdf'); const f=e.dataTransfer.files[0]; if(f&&(f.type==='application/pdf'||f.name.endsWith('.pdf'))) handlePdfFile(f); });
+pdfFileInput.addEventListener('change', e => { if(e.target.files[0]) handlePdfFile(e.target.files[0]); });
+
+function handlePdfFile(file) {
+    pdfFile = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+        pdfBase64 = e.target.result;
+        document.getElementById('pdfFileName').textContent = file.name;
+        document.getElementById('pdfFileSize').textContent = formatBytes(file.size);
+        document.getElementById('pdfUploadPrompt').classList.add('hidden');
+        document.getElementById('pdfPreviewState').classList.remove('hidden');
+        document.getElementById('pdfActionBar').classList.remove('hidden');
+        document.getElementById('pdfResults').classList.add('hidden');
+        document.getElementById('pdfError').classList.add('hidden');
+    };
+    reader.readAsDataURL(file);
+}
+
+document.getElementById('pdfClearBtn').addEventListener('click', () => {
+    pdfFile=null; pdfBase64=null; pdfFileInput.value='';
+    document.getElementById('pdfUploadPrompt').classList.remove('hidden');
+    document.getElementById('pdfPreviewState').classList.add('hidden');
+    document.getElementById('pdfActionBar').classList.add('hidden');
+    document.getElementById('pdfResults').classList.add('hidden');
+    document.getElementById('pdfError').classList.add('hidden');
+});
+
+/**
+ * Calls the PDF OCR Lambda pipeline.
+ * POST /api/pdf-ocr → Lambda pdf-ocr
+ *   → PyMuPDF renders each page as image
+ *   → Tesseract OCRs each image
+ *   → Returns combined text + per-page timing
+ */
+async function callPdfOcrLambda(pdfBase64, filename) {
+    const r = await fetch('/api/pdf-ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pdf:pdfBase64, filename}) });
+    if (!r.ok) throw new Error('Lambda failed ('+r.status+'): '+await r.text());
+    const d = await r.json(); if(d.error) throw new Error(d.error); return d;
+}
+
+document.getElementById('pdfExtractBtn').addEventListener('click', async () => {
+    if(!pdfBase64||!pdfFile) return;
+    const btn=document.getElementById('pdfExtractBtn');
+    btn.disabled=true; btn.classList.add('opacity-50','cursor-not-allowed');
+    document.getElementById('pdfProcessing').classList.remove('hidden');
+    document.getElementById('pdfResults').classList.add('hidden');
+    document.getElementById('pdfError').classList.add('hidden');
+    try {
+        const t0=performance.now();
+        const data = await callPdfOcrLambda(pdfBase64, pdfFile.name);
+        const roundtripMs=(performance.now()-t0).toFixed(2);
+
+        const timing = data.timing || {};
+        document.getElementById('pdfStatRoundtrip').textContent = roundtripMs;
+        document.getElementById('pdfStatPipeline').textContent = timing.pipeline_ms || '—';
+        document.getElementById('pdfStatExtract').textContent = timing.total_image_extract_ms || '—';
+        document.getElementById('pdfStatOcr').textContent = timing.total_ocr_ms || '—';
+        document.getElementById('pdfStatPages').textContent = data.page_count;
+        document.getElementById('pdfStatWords').textContent = data.total_word_count;
+        document.getElementById('pdfStatChars').textContent = data.total_char_count;
+        document.getElementById('pdfStatDpi').textContent = data.dpi || 300;
+        document.getElementById('pdfExtractedText').textContent = data.text || '(No text detected)';
+
+        // Build per-page table with timing bars
+        const tbody = document.getElementById('pdfPageTable');
+        tbody.innerHTML = '';
+        const pages = data.pages || [];
+        const maxTime = Math.max(...pages.map(p => p.image_extract_ms + p.ocr_ms), 1);
+
+        pages.forEach(p => {
+            const extractPct = Math.max((p.image_extract_ms / maxTime) * 100, 1);
+            const ocrPct = Math.max((p.ocr_ms / maxTime) * 100, 1);
+            const tr = document.createElement('tr');
+            tr.className = 'page-row text-gray-300 border-t border-white/5';
+            tr.innerHTML =
+                '<td class="px-3 py-2.5 text-left text-gray-400">' + p.page + '</td>' +
+                '<td class="px-3 py-2.5"><div class="flex gap-0.5">' +
+                    '<div class="bar bar-extract" style="width:'+extractPct+'%"></div>' +
+                    '<div class="bar bar-ocr" style="width:'+ocrPct+'%"></div>' +
+                '</div></td>' +
+                '<td class="px-3 py-2.5 text-right text-purple-400">' + p.image_extract_ms + '</td>' +
+                '<td class="px-3 py-2.5 text-right text-pdf">' + p.ocr_ms + '</td>' +
+                '<td class="px-3 py-2.5 text-right">' + p.word_count + '</td>' +
+                '<td class="px-3 py-2.5 text-right text-gray-500">' + formatBytes(p.image_size_bytes) + '</td>';
+            tbody.appendChild(tr);
         });
-        fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
-        function handleFile(file) {
-            selectedFile = file;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                base64Data = e.target.result;
-                previewImage.src = base64Data;
-                fileName.textContent = file.name;
-                fileSize.textContent = formatBytes(file.size);
-                uploadPrompt.classList.add('hidden');
-                previewState.classList.remove('hidden');
-                actionBar.classList.remove('hidden');
-                results.classList.add('hidden');
-                errorBox.classList.add('hidden');
-            };
-            reader.readAsDataURL(file);
-        }
-
-        function formatBytes(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / 1048576).toFixed(1) + ' MB';
-        }
-
-        // ===== Clear =====
-        clearBtn.addEventListener('click', () => {
-            selectedFile = null; base64Data = null; fileInput.value = '';
-            uploadPrompt.classList.remove('hidden');
-            previewState.classList.add('hidden');
-            actionBar.classList.add('hidden');
-            results.classList.add('hidden');
-            errorBox.classList.add('hidden');
-        });
-
-        // ===== Copy =====
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(extractedText.textContent).then(() => {
-                copyBtn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!';
-                setTimeout(() => {
-                    copyBtn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> Copy';
-                }, 2000);
-            });
-        });
-
-        // ===== Lambda API Call =====
-        /**
-         * Calls the Lambda OCR function via nginx reverse proxy.
-         * The backend uses the same invoke endpoint format as LocalStack/AWS Lambda:
-         *   POST /2015-03-31/functions/ocr-service/invocations
-         *
-         * @param {string} imageBase64 - Base64 data URL of the image
-         * @param {string} filename    - Original filename
-         * @returns {Promise<Object>}  - { text, processing_time_ms, word_count, text_length, filename }
-         */
-        async function callOcrLambda(imageBase64, filename) {
-            const payload = { image: imageBase64, filename: filename };
-
-            const response = await fetch('/api/ocr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error('Lambda invocation failed (' + response.status + '): ' + errText);
-            }
-
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
-            return result;
-        }
-
-        // ===== Extract =====
-        extractBtn.addEventListener('click', async () => {
-            if (!base64Data || !selectedFile) return;
-
-            extractBtn.disabled = true;
-            extractBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            processing.classList.remove('hidden');
-            results.classList.add('hidden');
-            errorBox.classList.add('hidden');
-            scanLine.classList.remove('hidden');
-
-            try {
-                const totalStart = performance.now();
-                const data = await callOcrLambda(base64Data, selectedFile.name);
-                const totalMs = (performance.now() - totalStart).toFixed(2);
-
-                document.getElementById('statTotalTime').textContent = totalMs;
-                document.getElementById('statOcrTime').textContent = data.processing_time_ms;
-                document.getElementById('statWords').textContent = data.word_count;
-                document.getElementById('statChars').textContent = data.text_length;
-                document.getElementById('statFile').textContent = data.filename;
-                extractedText.textContent = data.text || '(No text detected)';
-                results.classList.remove('hidden');
-            } catch (err) {
-                errorMessage.textContent = err.message;
-                errorBox.classList.remove('hidden');
-            } finally {
-                extractBtn.disabled = false;
-                extractBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                processing.classList.add('hidden');
-                scanLine.classList.add('hidden');
-            }
-        });
-    </script>
+        document.getElementById('pdfResults').classList.remove('hidden');
+    } catch(err) {
+        document.getElementById('pdfErrorMsg').textContent = err.message;
+        document.getElementById('pdfError').classList.remove('hidden');
+    } finally {
+        btn.disabled=false; btn.classList.remove('opacity-50','cursor-not-allowed');
+        document.getElementById('pdfProcessing').classList.add('hidden');
+    }
+});
+</script>
 </body>
 </html>
