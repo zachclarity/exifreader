@@ -1,8 +1,5 @@
 package com.example.pdfcli;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -10,6 +7,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Base64;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class PdfApiClient {
 
@@ -23,7 +23,7 @@ public class PdfApiClient {
     }
 
     public PdfApiClient(String baseUrl, boolean debug) {
-        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.debug = debug;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -33,24 +33,39 @@ public class PdfApiClient {
         debugLog("PdfApiClient initialized - baseUrl=%s", this.baseUrl);
     }
 
+    /**
+     * Fixes "URI with undefined scheme" when user passes "localhost:8080". Adds
+     * http:// if no scheme is present and trims a trailing slash.
+     */
+    private static String normalizeBaseUrl(String input) {
+        if (input == null) {
+            return "http://localhost:8080";
+        }
+        String s = input.trim();
+        if (s.isEmpty()) {
+            return "http://localhost:8080";
+        }
+
+        boolean hasScheme = s.matches("^[a-zA-Z][a-zA-Z0-9+\\-.]*://.*$");
+        if (!hasScheme) {
+            s = "http://" + s;
+        }
+        if (s.endsWith("/")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s;
+    }
+
     public String uploadPdf(String filename, byte[] pdfBytes) throws IOException, InterruptedException {
         String url = baseUrl + "/api/pdf";
 
         String b64 = Base64.getEncoder().encodeToString(pdfBytes);
-        debugLog("Encoded PDF: filename=%s, rawBytes=%d, base64Length=%d", filename, pdfBytes.length, b64.length());
 
         ObjectNode body = mapper.createObjectNode();
         body.put("pdf", b64);
         body.put("filename", filename);
 
         String jsonBody = mapper.writeValueAsString(body);
-        debugLog("JSON payload size: %d chars", jsonBody.length());
-
-        // NOTE: Java's HttpClient forbids setting certain "restricted" headers:
-        //   Connection, Content-Length, Expect, Host, Upgrade,
-        //   and (by default) Accept-Encoding.
-        // These are managed automatically by the runtime.
-        // Setting them manually throws IllegalArgumentException.
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -61,19 +76,7 @@ public class PdfApiClient {
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
 
-        debugLog(">> %s %s", request.method(), request.uri());
-        if (debug) {
-            request.headers().map().forEach((k, v) -> debugLog(">>   %s: %s", k, String.join(", ", v)));
-        }
-
         HttpResponse<String> resp = http.send(request, HttpResponse.BodyHandlers.ofString());
-
-        debugLog("<< HTTP %d", resp.statusCode());
-        if (debug) {
-            resp.headers().map().forEach((k, v) -> debugLog("<<   %s: %s", k, String.join(", ", v)));
-        }
-        debugLog("<< Body length: %d chars", resp.body().length());
-        debugLog("<< Body (first 500 chars): %.500s", resp.body());
 
         if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
             throw new IOException("HTTP " + resp.statusCode() + ":\n" + resp.body());
