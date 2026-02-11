@@ -20,18 +20,27 @@ public class FileInfo {
     @Schema(description = "File extension", example = "pdf")
     private String extension;
 
+    @Schema(description = "Programming language if the file is a source code file", example = "Java", nullable = true)
+    private String programmingLanguage;
+
+    @Schema(description = "Whether the file is a source code file", example = "true")
+    private boolean sourceCodeFile;
+
     @Schema(description = "Processing status message", example = "File processed successfully")
     private String message;
 
     public FileInfo() {
     }
 
-    public FileInfo(String fileName, String fileType, long sizeInBytes, String formattedSize, String extension, String message) {
+    public FileInfo(String fileName, String fileType, long sizeInBytes, String formattedSize,
+                    String extension, String programmingLanguage, boolean sourceCodeFile, String message) {
         this.fileName = fileName;
         this.fileType = fileType;
         this.sizeInBytes = sizeInBytes;
         this.formattedSize = formattedSize;
         this.extension = extension;
+        this.programmingLanguage = programmingLanguage;
+        this.sourceCodeFile = sourceCodeFile;
         this.message = message;
     }
 
@@ -73,6 +82,22 @@ public class FileInfo {
 
     public void setExtension(String extension) {
         this.extension = extension;
+    }
+
+    public String getProgrammingLanguage() {
+        return programmingLanguage;
+    }
+
+    public void setProgrammingLanguage(String programmingLanguage) {
+        this.programmingLanguage = programmingLanguage;
+    }
+
+    public boolean isSourceCodeFile() {
+        return sourceCodeFile;
+    }
+
+    public void setSourceCodeFile(boolean sourceCodeFile) {
+        this.sourceCodeFile = sourceCodeFile;
     }
 
     public String getMessage() {

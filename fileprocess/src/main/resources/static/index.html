@@ -313,6 +313,18 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
+        .lang-badge {
+            display: inline-block;
+            background: var(--accent-glow);
+            color: var(--accent);
+            border: 1px solid rgba(88, 166, 255, 0.25);
+            padding: 0.15rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            font-family: 'DM Sans', sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -458,6 +470,13 @@
                 </svg>
                 ${data.message || 'File processed successfully'}`;
 
+            const langRow = data.sourceCodeFile
+                ? `<div class="result-row lang-row">
+                       <span class="result-label">Language</span>
+                       <span class="result-value"><span class="lang-badge">${data.programmingLanguage}</span></span>
+                   </div>`
+                : '';
+
             resultBody.innerHTML = `
                 <div class="result-row">
                     <span class="result-label">File Name</span>
@@ -471,9 +490,14 @@
                     <span class="result-label">Extension</span>
                     <span class="result-value">.${data.extension}</span>
                 </div>
+                ${langRow}
                 <div class="result-row">
                     <span class="result-label">Size</span>
                     <span class="result-value">${data.formattedSize}  (${data.sizeInBytes.toLocaleString()} bytes)</span>
+                </div>
+                <div class="result-row">
+                    <span class="result-label">Category</span>
+                    <span class="result-value">${data.sourceCodeFile ? '📄 Source Code' : '📎 Non-Code File'}</span>
                 </div>`;
         } else {
             resultHeader.innerHTML = `
