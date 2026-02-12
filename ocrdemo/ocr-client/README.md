@@ -4,6 +4,19 @@ A command-line client for invoking the OCR Lambda functions (`handler.py`, `pdf_
 
 Built with Java 21 features: sealed interfaces, records, pattern matching switch expressions, and text blocks.
 
+Example 
+
+```
+
+:: Image OCR
+java -jar target/ocr-client-1.0.0.jar image sample.png -e http://localhost -p 9000 --image-fn ocr-service -o=TEXT
+
+:: PDF text extraction
+>java -jar target/ocr-client-1.0.0.jar scan sample.pdf -e http://localhost -p 9000 --pdf-fn pdf-extract -o=TEXT
+
+:: PDF OCR (scanned PDFs)
+java -jar target/ocr-client-1.0.0.jar scan sample.pdf -e http://localhost -p 9000 --pdf-fn pdf-ocr -o=TEXT
+```
 ---
 
 ## Prerequisites

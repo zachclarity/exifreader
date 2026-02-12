@@ -59,19 +59,27 @@ public class LambdaInvoker implements AutoCloseable {
                          String imageOcrFunction,
                          String pdfExtractFunction,
                          String pdfOcrFunction) {
+
+        // Normalize: treat null, empty, and unresolved picocli variables as "no override"
+        boolean hasEndpoint = endpointOverride != null
+                && !endpointOverride.isBlank()
+                && !endpointOverride.startsWith("$");
+
         var builder = LambdaClient.builder()
                 .region(Region.of(region));
 
-        if (endpointOverride != null && !endpointOverride.isBlank()) {
-            // Custom endpoint (e.g. LocalStack) — use static dummy credentials
-            // to prevent the SDK from making background STS/IMDS calls that
-            // would fail with UnknownHostException
+        if (hasEndpoint) {
+            System.err.println("[DEBUG] Using custom endpoint: " + endpointOverride);
+            System.err.println("[DEBUG] Using static credentials (test/test)");
             builder.endpointOverride(java.net.URI.create(endpointOverride))
                    .credentialsProvider(StaticCredentialsProvider.create(
                            AwsBasicCredentials.create("test", "test")
                    ));
         } else {
-            // Real AWS — use the default credential chain
+            System.err.println("[DEBUG] Using default AWS credentials + endpoint");
+            if (endpointOverride != null) {
+                System.err.println("[DEBUG] (endpoint value was: '" + endpointOverride + "')");
+            }
             builder.credentialsProvider(DefaultCredentialsProvider.create());
         }
 
