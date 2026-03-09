@@ -1,0 +1,506 @@
+demo
+
+app.py
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from typing import Any, Dict, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import HttpUrl, Field
+import hashlib
+import fitz  # PyMuPDF
+import tempfile
+import time
+
+import psycopg
+from psycopg import sql
+import boto3
+
+from botocore.exceptions import BotoCoreError, ClientError
+
+from processors import (
+    cleanup_temp_file,
+    download_s3_file,
+    extract_text,
+    ocr_file,
+    process_document_pipeline,
+)
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("sqs-document-worker")
+
+class Settings(BaseSettings):
+    # AWS Configuration mapped to your Docker/AWS Env names
+    aws_region: str = Field("us-east-1", alias="AWS_REGION")
+    aws_access_key_id: str = Field("test", alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str = Field("test", alias="AWS_SECRET_ACCESS_KEY")
+    endpoint_url: [str] = Field("http://host.docker.internal:4566", alias="AWS_ENDPOINT")
+    
+    # Database Configuration
+    coral_db_host: str = Field("host.docker.internal", alias="CORAL_DB_HOST")
+    coral_db_port: int = Field(5432, alias="CORAL_DB_PORT")
+    coral_db_user: str = Field("postgres", alias="CORAL_DB_USER")
+    coral_db_password: str = Field("postgres", alias="CORAL_DB_PASSWORD")
+    coral_db_name: str = Field("coral", alias="CORAL_DB_NAME")
+
+    # S3 Bucket Configuration
+    s3_upload_bucket: str = Field("coral", alias="S3_UPLOAD_BUCKET")
+    s3_extracted_bucket: str = Field("coral-extracted-text", alias="S3_EXTRACTED_BUCKET")
+    s3_tmp_bucket: str = Field("coral-pdf-img-files", alias="S3_TMP_BUCKET")
+
+    # SQS Queue Configuration
+    sqs_file_queue_url: str = Field(
+        "http://host.docker.internal:4566/000000000000/DOCUMENT_TEXT_EXTRACT.fifo", 
+        alias="SQS_FILE_QUEUE_URL"
+    )
+    sqs_ocr_queue_url: str = Field(
+        "http://host.docker.internal:4566/000000000000/DOCUMENT_TEXT_OCR_REQUEST.fifo", 
+        alias="SQS_OCR_QUEUE_URL"
+    )
+    
+    # Worker Configuration
+    poll_wait_seconds: int = 10
+    visibility_timeout: int = 60
+    max_messages: int = 1
+    sleep_on_empty: int = 2
+
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        env_file_encoding="utf-8",
+        env_prefix="", 
+        extra="ignore"
+    )
+
+settings = Settings()
+
+RUNNING = True
+
+def handle_shutdown(signum: int, frame: Any) -> None:
+    global RUNNING
+    logger.info("Shutdown signal received: %s", signum)
+    RUNNING = False
+
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
+def create_boto3_client(service_name: str):
+    return boto3.client(
+        service_name,
+        region_name=settings.aws_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        endpoint_url=settings.endpoint_url,
+    )
+
+
+sqs_client = create_boto3_client("sqs")
+s3_client = create_boto3_client("s3")
+
+def parse_message_body(body: str) -> Dict[str, Any]:
+    try:
+        payload = json.loads(body)
+        logger.debug("Parsed message payload: %s", payload)
+        return payload
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON message body: {exc}") from exc
+
+
+def validate_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    document_id = payload["documentId"]
+    bucket = settings.s3_upload_bucket
+    document_type = payload.get("documentType", "unknown")
+
+    if not document_id:
+        raise ValueError("Missing required field: documentId")
+  
+    key = f"{document_id}"
+
+    return {
+        "documentId": document_id,
+        "Bucket": bucket,
+        "Key": key,
+        "documentType": document_type,
+    }
+
+def phase_receive_message() -> Optional[Dict[str, Any]]:
+    logger.info("Polling SQS queue: %s", settings.sqs_file_queue_url)
+
+    response = sqs_client.receive_message(
+        QueueUrl=settings.sqs_file_queue_url,
+        MaxNumberOfMessages=settings.max_messages,
+        WaitTimeSeconds=settings.poll_wait_seconds,
+        VisibilityTimeout=settings.visibility_timeout,
+    )
+
+    messages = response.get("Messages", [])
+    if not messages:
+        logger.debug("No messages received")
+        return None
+
+    return messages[0]
+
+
+def phase_parse_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("Phase: parse_message")
+    body = message.get("Body", "")
+    payload = parse_message_body(body)
+    validated = validate_payload(payload)
+    logger.info(
+        "Message validated | documentId=%s Bucket=%s Key=%s Type=%s",
+        validated["documentId"],
+        validated["Bucket"],
+        validated["Key"],
+        validated["documentType"],
+    )
+    return validated
+
+
+def phase_download_document(payload: Dict[str, Any]) -> str:
+    logger.info("Phase: download_document | documentId=%s", payload["documentId"])
+    local_path = download_s3_file(
+        s3_client=s3_client,
+        bucket_name=payload["Bucket"],
+        object_key=payload["Key"],
+        document_id=payload["documentId"],
+    )
+    logger.info("Downloaded file to: %s", local_path)
+    return local_path
+
+def extract_pdf_images(local_path: str, payload: Dict[str, Any]) -> str:
+   
+    logger.info("PDF Images extraction phase started for: %s", local_path)
+  
+    try:
+        doc = fitz.open(local_path)
+        text = ""
+        img_count = 1
+        img_task_arr = []
+        with tempfile.TemporaryDirectory(prefix="img-extract-") as tmp_dir:
+
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                image_list = page.get_images(full=True)
+                
+                for img_index, img in enumerate(image_list):
+                    xref = img[0]
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    ext = base_image["ext"]
+                    
+                    img_filename = f"img_{page_num}_{img_index}.{ext}"
+                    local_img_path = os.path.join(tmp_dir, img_filename)
+                    
+                    with open(local_img_path, "wb") as f:
+                        f.write(image_bytes)
+                    
+                    img_s3_key = f"{payload['documentId']}_ext_{img_filename}"
+                    s3_client.upload_file(local_img_path, settings.s3_tmp_bucket, img_s3_key)
+                    
+                    img_task = payload.copy()
+                    img_task['originalDocumentId'] = payload["documentId"]
+                    img_task['documentId'] = img_s3_key
+                    img_task['imageIndex'] = img_index
+                    img_task['media_type'] = "IMAGE"
+
+                    img_task_arr.append(img_task)
+                    img_count += 1
+                              
+        logger.info(f"Extracted {img_count} images from PDF.")
+        return img_count
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"Unable to decode text file: {local_path}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Unable to read file: {local_path}") from exc
+    finally:
+        if doc:
+            doc.close()
+            logger.debug("Closed PDF document handle.")
+
+def phase_extract_content(local_path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("Phase: extract_content type=%s | file=%s", payload["documentType"], local_path)
+    try:
+        result = process_document_pipeline(
+            file_path=local_path,
+            document_type=payload["documentType"]
+        )
+        logger.info("Processing")
+        logger.info(payload["documentId"])
+        if (payload["documentType"] == "PDF" ):
+            save_to_db(payload["documentId"], result)
+            num_imgs = extract_pdf_images(local_path, payload)
+            send_ocr_message(settings.sqs_ocr_queue_url, payload, num_imgs)
+        else: 
+            send_ocr_message(settings.sqs_ocr_queue_url, payload, 1)
+            
+        logger.info(
+            "Extraction complete | method=%s chars=%s",
+            result.get("method"),
+            len(result.get("text", "")),
+        )
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return result
+
+
+def save_to_db(document_id, file_path):
+    
+    db_config = {
+        "dbname": settings.coral_db_name,
+        "user": settings.coral_db_user,
+        "password": settings.coral_db_password,
+        "host": settings.coral_db_host,
+        "port": settings.coral_db_port
+    }
+
+    try:
+        with psycopg.connect(**db_config) as conn:
+            with open(file_path, "rb") as f:
+                conn.execute(
+                    "UPDATE coral_documents SET doc_read = %s WHERE document_id = %s",
+                    (f, doc_id) # Psycopg 3 detects the file-like object and streams it
+                 )
+        
+            print(f"Successfully saved data for Document ID: {document_id}")
+            conn.close();  
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def phase_delete_message(receipt_handle: str) -> None:
+    logger.info("Phase: delete_message")
+    sqs_client.delete_message(
+        QueueUrl=settings.sqs_file_queue_url,
+        ReceiptHandle=receipt_handle,
+    )
+    logger.info("Message deleted from queue")
+
+def get_safe_dedup_id(original_filename):
+    unix_timestamp = int(time.time())
+    timestamped_filename = f"{unix_timestamp}_{original_filename}"
+    filename_bytes = timestamped_filename.encode('utf-8')
+    return hashlib.sha256(filename_bytes).hexdigest()
+
+def send_ocr_message(queueUrl, payload, num_imgs=1):
+    document_id = payload["documentId"]
+    logger.info(queueUrl)
+    payload['NumImages'] = num_imgs
+    deduplication_id = get_safe_dedup_id(document_id)
+    clean_group_id = "ocr-processing-group"
+    
+    try:
+        sqs_client.send_message(
+            QueueUrl=queueUrl,
+            MessageBody=json.dumps(payload),
+            MessageGroupId=clean_group_id,
+            MessageDeduplicationId=deduplication_id
+        )
+        logger.info("OCR Message Sent")
+        return True
+    except Exception as e:
+        logger.error(f"Error sending OCR message: {e}")
+        return False
+        
+def phase_handle_success(payload: Dict[str, Any], result: Dict[str, Any]) -> None:
+    logger.info(
+        "SUCCESS | documentId=%s | Method=%s | Preview=%s",
+        payload["documentId"],
+        result.get("method"),
+        result.get("text", "")[:120].replace("\n", " "),
+    )
+
+
+def phase_handle_failure(message: Optional[Dict[str, Any]], exc: Exception) -> None:
+    logger.exception("FAILED processing message: %s", exc)
+
+def handle_message(message: Dict[str, Any]) -> None:
+    local_path: Optional[str] = None
+    receipt_handle = message.get("ReceiptHandle")
+
+    try:
+        payload = phase_parse_message(message)
+        local_path = phase_download_document(payload)
+        doc_type = payload.get('documentType', '').upper()
+
+        if doc_type == "PDF":
+            result = phase_extract_content(local_path, payload)
+            phase_handle_success(payload, result)
+            
+        elif doc_type == "TXT":
+            save_to_db(payload["documentId"], local_path)
+            logger.info("TXT processed and saved to DB.")
+            
+        else:
+            logger.info("Routing to OCR pipeline...")
+            send_ocr_message(settings.sqs_ocr_queue_url, payload, 1)
+
+        phase_delete_message(receipt_handle)
+
+    except Exception as exc:
+        phase_handle_failure(message, exc)
+    finally:
+        if local_path:
+            cleanup_temp_file(local_path)
+
+def run() -> None:
+    logger.info("Starting SQS document worker...")
+    logger.info("AWS endpoint: %s", settings.endpoint_url)
+    logger.info("Queue URL: %s", settings.sqs_file_queue_url)
+    logger.info("Bucket: %s", settings.s3_upload_bucket)
+
+    while RUNNING:
+        try:
+            message = phase_receive_message()
+            if not message:
+                time.sleep(settings.sleep_on_empty)
+                continue
+
+            handle_message(message)
+
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("AWS communication error: %s", exc)
+            time.sleep(5)
+
+        except Exception as exc:
+            logger.exception("Unexpected top-level error: %s", exc)
+            time.sleep(5)
+
+    logger.info("Worker stopped cleanly")
+
+
+if __name__ == "__main__":
+    run()
+
+## process.py
+import logging
+import os
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Dict
+import fitz  # PyMuPDF
+
+from botocore.exceptions import BotoCoreError, ClientError
+
+logger = logging.getLogger("document-processors")
+
+
+def download_s3_file(s3_client, bucket_name: str, object_key: str, document_id: str) -> str:
+   
+    temp_dir = tempfile.mkdtemp(prefix=f"doc_{document_id}_")
+    filename = Path(object_key).name or f"{document_id}.bin"
+    local_path = os.path.join(temp_dir, filename)
+
+    try:
+        logger.info("Downloading s3://%s/%s -> %s", bucket_name, object_key, local_path)
+        s3_client.download_file(bucket_name, object_key, local_path)
+        return local_path
+    except (ClientError, BotoCoreError) as exc:
+        raise RuntimeError(
+            f"Failed to download S3 file s3://{bucket_name}/{object_key}: {exc}"
+        ) from exc
+
+
+def ocr_file(file_path: str) -> str:
+    """
+    Placeholder OCR function.
+    Replace with pytesseract, textract, paddleocr, easyocr, etc.
+    """
+    logger.info("OCR phase started for: %s", file_path)
+
+    suffix = Path(file_path).suffix.lower()
+    supported_image_types = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+
+    if suffix not in supported_image_types:
+        raise RuntimeError(f"OCR not supported for file type: {suffix}")
+
+    # Placeholder result
+    return f"[OCR OUTPUT] Simulated OCR text extracted from image file: {Path(file_path).name}"
+
+from pathlib import Path
+
+def stream_append_to_file(filename, data_generator):
+   
+    file_path = Path(filename).resolve()
+
+    with file_path.open(mode='a', encoding='utf-8') as f:
+        for chunk in data_generator:
+            f.write(chunk + "\n")  # Adding a newline for each entry
+            
+    return str(file_path)
+    print(f"Data appended successfully. File location: {file_path}")
+
+def extract_text(file_path: str) -> str:
+   
+    logger.info("Text extraction phase started for: %s", file_path)
+    tmp_textfile = "tmp_textfile.txt"
+    try:
+        doc = fitz.open(file_path)
+        text = ""
+
+        for page in doc:
+            stream_append_to_file(tmp_textfile, page.get_text())
+        doc.close()
+        logger.info("Text Extract Complete") 
+        return tmp_textfile
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"Unable to decode text file: {file_path}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Unable to read file: {file_path}") from exc
+
+
+def classify_processing_method(file_path: str, document_type: str) -> str:
+ 
+ match document_type:
+    case "PDF":
+        print("Processing Document: Portable Document Format")
+        return "text_extract" 
+    case "TXT":
+        print("Processing Document: Portable Document Format")
+        return "text_extract" 
+    case _:
+        print("Processing Data: OCR") 
+        return "ocr"
+    
+    # Default 
+ return "text_extract"
+
+
+def process_document_pipeline(file_path: str, document_type: str) -> Dict[str, str]:
+   
+    logger.info("Pipeline start | file=%s | type=%s", file_path, document_type)
+
+    method = classify_processing_method(file_path, document_type)
+    text = ""
+
+    if method == "ocr":
+        text = ocr_file(file_path)
+    elif method == "text_extract":
+        text = extract_text(file_path)
+    else:
+        raise RuntimeError(f"Unsupported processing method: {method}")
+
+    logger.info("Pipeline complete | method=%s", method)
+
+    return {
+        "method": method,
+        "text": text,
+    }
+
+
+def cleanup_temp_file(file_path: str) -> None:
+    """
+    Remove temp directory containing the downloaded file.
+    """
+    try:
+        temp_dir = str(Path(file_path).parent)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.info("Cleaned temp directory: %s", temp_dir)
+    except Exception as exc:
+        logger.warning("Temp cleanup failed for %s: %s", file_path, exc)
